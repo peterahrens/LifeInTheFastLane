@@ -11,46 +11,6 @@
 #define       Y_IN_GHOST IN_GHOST
 #define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)
 
-static void show (unsigned height, unsigned width, unsigned *universe) {
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-  for (int y = 0; y < height; y++) {
-    printf("|");
-    for (int x = 0; x < width; x++) {
-        printf(universe[y * width + x] ? "##" : "  ");
-    }
-    printf("|\n");
-  }
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-}
-
-static void show_char (unsigned height, unsigned width, uint8_t *universe) {
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-  for (int y = 0; y < height; y++) {
-    printf("|");
-    for (int x = 0; x < width; x++) {
-        printf(universe[y * width + x] ? "##" : "  ");
-    }
-    printf("|\n");
-  }
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-}
-
 unsigned *life (const unsigned height,
                 const unsigned width,
                 const unsigned * const initial,
@@ -72,73 +32,71 @@ unsigned *life (const unsigned height,
   for (unsigned i = 0; i < iters; i++) {
     //copy the ghost cells once every IN_GHOST iterations
     if (i % IN_GHOST == 0){
-      __m256i *universe_words = (__m256i*)universe;
+      __m128i *universe_words = (__m128i*)universe;
       for (unsigned y = 0; y < padded_height; y++) {
         if (y < Y_IN_GHOST) {
           for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + (y + height) * padded_width_words + x + width_words));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + (y + height) * padded_width_words + x + width_words));
           }
           for (unsigned x = X_IN_GHOST_WORDS; x < width_words + X_IN_GHOST_WORDS; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + (y + height) * padded_width_words + x));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + (y + height) * padded_width_words + x));
           }
           for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + (y + height) * padded_width_words + x - width_words));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + (y + height) * padded_width_words + x - width_words));
           }
         } else if (y < height + Y_IN_GHOST) {
           for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + y * padded_width_words + x + width_words));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + y * padded_width_words + x + width_words));
           }
           for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + y * padded_width_words + x - width_words));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + y * padded_width_words + x - width_words));
           }
         } else {
           for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + (y - height) * padded_width_words + x + width_words));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + (y - height) * padded_width_words + x + width_words));
           }
           for (unsigned x = X_IN_GHOST_WORDS; x < width_words + X_IN_GHOST_WORDS; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + (y - height) * padded_width_words + x));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + (y - height) * padded_width_words + x));
           }
           for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
-            _mm256_store_si256(universe_words + y * padded_width_words + x,
-              _mm256_load_si256(universe_words + (y - height) * padded_width_words + x - width_words));
+            _mm_store_si128(universe_words + y * padded_width_words + x,
+              _mm_load_si128(universe_words + (y - height) * padded_width_words + x - width_words));
           }
         }
       }
     }
     //evolve
-    __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
-                                   1, 1, 1, 1, 1, 1, 1, 1,
-                                   1, 1, 1, 1, 1, 1, 1, 1,
-                                   1, 1, 1, 1, 1, 1, 1, 1);
-    __m256i twos = _mm256_slli_epi32(ones, 1);
-    __m256i threes = _mm256_or_si256(ones, twos);
+    __m128i ones = _mm_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1);
+    __m128i twos = _mm_slli_epi32(ones, 1);
+    __m128i threes = _mm_or_si128(ones, twos);
     for (unsigned y = (Y_IN_GHOST - OUT_GHOST); y < height + Y_IN_GHOST + OUT_GHOST; y++) {
       for (unsigned x = (X_IN_GHOST - OUT_GHOST); x + WORD <= width + X_IN_GHOST + OUT_GHOST; x += WORD) {
-        __m256i n;
-        __m256i alive;
+        __m128i n;
+        __m128i alive;
         uint8_t *u = universe + (y - 1) * padded_width + x - 1;
-        n = _mm256_loadu_si256((__m256i*)u);
-        n = _mm256_add_epi8(_mm256_load_si256((__m256i*)(u + 1)), n);
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
+        n = _mm_loadu_si128((__m128i*)u);
+        n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
+        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)(u + 2)), n);
         u += padded_width;
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)u), n);
-        alive = _mm256_load_si256((__m256i*)(u + 1));
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
+        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)u), n);
+        alive = _mm_load_si128((__m128i*)(u + 1));
+        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)(u + 2)), n);
         u += padded_width;
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)u), n);
-        n = _mm256_add_epi8(_mm256_load_si256((__m256i*)(u + 1)), n);
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
-        _mm256_store_si256((__m256i*)(new + y * padded_width + x),
-          _mm256_or_si256(
-          _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
-          _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
+        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)u), n);
+        n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
+        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)(u + 2)), n);
+        _mm_store_si128((__m128i*)(new + y * padded_width + x),
+          _mm_or_si128(
+          _mm_and_si128(ones, _mm_cmpeq_epi8(n, threes)),
+          _mm_and_si128(alive, _mm_cmpeq_epi8(n, twos))));
       }
     }
     uint8_t *tmp = universe;
