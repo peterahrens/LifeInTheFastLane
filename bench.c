@@ -81,13 +81,13 @@ int main (int argc, char **argv) {
   }
 
   if (width <= 0) {
-    width = 8192;
+    width = 2048;
   }
   if (height <= 0) {
-    height = 4096;
+    height = 2048;
   }
   if (iters <= 0) {
-    iters = 64;
+    iters = 256;
   }
   if (display <= 0) {
     display = 0;
