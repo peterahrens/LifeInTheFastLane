@@ -7,19 +7,19 @@
 static void show_diff (unsigned height, unsigned width, unsigned *universe, unsigned *ref) {
   printf("+");
   for (int x = 0; x < width; x++) {
-      printf("--");
+    printf("--");
   }
   printf("+\n");
   for (int y = 0; y < height; y++) {
     printf("|");
     for (int x = 0; x < width; x++) {
-        printf(universe[y * width + x] != ref[y * width + x] ? "##" : "  ");
+      printf(universe[y * width + x] != ref[y * width + x] ? "##" : "  ");
     }
     printf("|\n");
   }
   printf("+");
   for (int x = 0; x < width; x++) {
-      printf("--");
+    printf("--");
   }
   printf("+\n");
 }
@@ -33,11 +33,7 @@ static void show (unsigned height, unsigned width, unsigned *universe) {
   for (int y = 0; y < height; y++) {
     printf("|");
     for (int x = 0; x < width; x++) {
-        if(universe[y * width + x] > 1){
-          printf("%d%d", universe[y * width + x]);
-        }else{
-          printf(universe[y * width + x] ? "##" : "  ");
-        }
+      printf(universe[y * width + x] ? "##" : "  ");
     }
     printf("|\n");
   }
@@ -85,13 +81,13 @@ int main (int argc, char **argv) {
   }
 
   if (width <= 0) {
-    width = 1024;
+    width = 2048;
   }
   if (height <= 0) {
-    height = 1024;
+    height = 2048;
   }
   if (iters <= 0) {
-    iters = 32;
+    iters = 64;
   }
   if (display <= 0) {
     display = 0;

@@ -119,26 +119,49 @@ unsigned *life (const unsigned height,
                                    1, 1, 1, 1, 1, 1, 1, 1);
     __m256i twos = _mm256_slli_epi32(ones, 1);
     __m256i threes = _mm256_or_si256(ones, twos);
-    for (unsigned y = (Y_IN_GHOST - OUT_GHOST); y < height + Y_IN_GHOST + OUT_GHOST; y++) {
+    for (unsigned y = (Y_IN_GHOST - OUT_GHOST); y + 2 <= height + Y_IN_GHOST + OUT_GHOST; y += 2) {
       for (unsigned x = (X_IN_GHOST - OUT_GHOST); x + WORD <= width + X_IN_GHOST + OUT_GHOST; x += WORD) {
-        __m256i n;
-        __m256i alive;
+        __m256i n_0;
+        __m256i t;
+        __m256i n_1;
+        __m256i alive_0;
+        __m256i alive_1;
         uint8_t *u = universe + (y - 1) * padded_width + x - 1;
-        n = _mm256_loadu_si256((__m256i*)u);
-        n = _mm256_add_epi8(_mm256_load_si256((__m256i*)(u + 1)), n);
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
+        //n_0 gets (0, 0), (0, 1), (0, 2)
+        n_0 = _mm256_loadu_si256((__m256i*)u);
+        n_0 = _mm256_add_epi8(_mm256_load_si256((__m256i*)(u + 1)), n_0);
+        n_0 = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n_0);
         u += padded_width;
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)u), n);
-        alive = _mm256_load_si256((__m256i*)(u + 1));
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
+        //n_0 gets (1, 0), (1, 2)
+        //n_1 gets (1, 0), (1, 1), (1, 2)
+        n_1 = _mm256_loadu_si256((__m256i*)u);
+        alive_0 = _mm256_load_si256((__m256i*)(u + 1));
+        n_1 = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n_1);
+        n_0 = _mm256_add_epi8(n_1, n_0);
+        n_1 = _mm256_add_epi8(alive_0, n_1);
         u += padded_width;
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)u), n);
-        n = _mm256_add_epi8(_mm256_load_si256((__m256i*)(u + 1)), n);
-        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
+        //n_0 gets (2, 0), (2, 1), (2, 2)
+        //n_1 gets (2, 0), (2, 2)
+        t = _mm256_loadu_si256((__m256i*)u);
+        alive_1 = _mm256_load_si256((__m256i*)(u + 1));
+        t = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), t);
+        n_0 = _mm256_add_epi8(t, n_0);
+        n_0 = _mm256_add_epi8(alive_1, n_0);
+        n_1 = _mm256_add_epi8(t, n_1);
+        u += padded_width;
+        //n_1 gets (3, 0), (3, 1), (3, 2)
+        n_1 = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)u), n_1);
+        n_1 = _mm256_add_epi8(_mm256_load_si256((__m256i*)(u + 1)), n_1);
+        n_1 = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n_1);
+
         _mm256_store_si256((__m256i*)(new + y * padded_width + x),
           _mm256_or_si256(
-          _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
-          _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
+          _mm256_and_si256(ones, _mm256_cmpeq_epi8(n_0, threes)),
+          _mm256_and_si256(alive_0, _mm256_cmpeq_epi8(n_0, twos))));
+        _mm256_store_si256((__m256i*)(new + (y + 1) * padded_width + x),
+          _mm256_or_si256(
+          _mm256_and_si256(ones, _mm256_cmpeq_epi8(n_1, threes)),
+          _mm256_and_si256(alive_1, _mm256_cmpeq_epi8(n_1, twos))));
       }
     }
     uint8_t *tmp = universe;
