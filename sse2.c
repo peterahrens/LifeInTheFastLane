@@ -82,17 +82,17 @@ unsigned *life (const unsigned height,
         __m128i n;
         __m128i alive;
         uint8_t *u = universe + (y - 1) * padded_width + x - 1;
-        n = _mm_loadu_si128((__m128i*)u);
+        n = _mm_lddqu_si128((__m128i*)u);
         n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
-        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)(u + 2)), n);
+        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
         u += padded_width;
-        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)u), n);
+        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
         alive = _mm_load_si128((__m128i*)(u + 1));
-        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)(u + 2)), n);
+        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
         u += padded_width;
-        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)u), n);
+        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
         n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
-        n = _mm_add_epi8(_mm_loadu_si128((__m128i*)(u + 2)), n);
+        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
         _mm_store_si128((__m128i*)(new + y * padded_width + x),
           _mm_or_si128(
           _mm_and_si128(ones, _mm_cmpeq_epi8(n, threes)),

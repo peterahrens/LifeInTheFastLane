@@ -1,38 +1,40 @@
+CC = gcc-6
 CFLAGS = -std=c99 -O3 -march=native
+OMPFLAGS = -fopenmp
 
-all: simple padded sse2 avx2 unrolled
+all: simple padded sse2 avx2 omp
 clean:
-	rm simple padded sse2 avx2 unrolled *.o
+	rm simple padded sse2 avx2 omp *.o
 
 reference.o: reference.c
-	gcc ${CFLAGS} -c reference.c
+	${CC} ${CFLAGS} -c reference.c
 
 simple.o: simple.c
-	gcc ${CFLAGS} -c simple.c
+	${CC} ${CFLAGS} -c simple.c
 
 padded.o: padded.c
-	gcc ${CFLAGS} -c padded.c
+	${CC} ${CFLAGS} -c padded.c
 
 sse2.o: sse2.c
-	gcc ${CFLAGS} -c sse2.c
+	${CC} ${CFLAGS} -c sse2.c
 
 avx2.o: avx2.c
-	gcc ${CFLAGS} -c avx2.c
+	${CC} ${CFLAGS} -c avx2.c
 
-unrolled.o: unrolled.c
-	gcc ${CFLAGS} -c unrolled.c
+omp.o: omp.c
+	${CC} ${OMPFLAGS} ${CFLAGS} -c omp.c
 
 simple: bench.c simple.o reference.o
-	gcc ${CFLAGS} bench.c reference.o simple.o -o simple
+	${CC} ${CFLAGS} bench.c reference.o simple.o -o simple
 
 padded: bench.c padded.o reference.o
-	gcc ${CFLAGS} bench.c reference.o padded.o -o padded
+	${CC} ${CFLAGS} bench.c reference.o padded.o -o padded
 
 sse2: bench.c sse2.o reference.o
-	gcc ${CFLAGS} bench.c reference.o sse2.o -o sse2
+	${CC} ${CFLAGS} bench.c reference.o sse2.o -o sse2
 
 avx2: bench.c avx2.o reference.o
-	gcc ${CFLAGS} bench.c reference.o avx2.o -o avx2
+	${CC} ${CFLAGS} bench.c reference.o avx2.o -o avx2
 
-unrolled: bench.c reference.o unrolled.o
-	gcc ${CFLAGS} bench.c reference.o unrolled.o -o unrolled
+omp: bench.c reference.o omp.o
+	${CC} ${CFLAGS} ${OMPFLAGS} bench.c reference.o omp.o -o omp
