@@ -4,6 +4,50 @@
 
 #define TIMEOUT 0.1
 
+static void show_diff (unsigned height, unsigned width, unsigned *universe, unsigned *ref) {
+  printf("+");
+  for (int x = 0; x < width; x++) {
+      printf("--");
+  }
+  printf("+\n");
+  for (int y = 0; y < height; y++) {
+    printf("|");
+    for (int x = 0; x < width; x++) {
+        printf(universe[y * width + x] != ref[y * width + x] ? "##" : "  ");
+    }
+    printf("|\n");
+  }
+  printf("+");
+  for (int x = 0; x < width; x++) {
+      printf("--");
+  }
+  printf("+\n");
+}
+
+static void show (unsigned height, unsigned width, unsigned *universe) {
+  printf("+");
+  for (int x = 0; x < width; x++) {
+      printf("--");
+  }
+  printf("+\n");
+  for (int y = 0; y < height; y++) {
+    printf("|");
+    for (int x = 0; x < width; x++) {
+        if(universe[y * width + x] > 1){
+          printf("%d%d", universe[y * width + x]);
+        }else{
+          printf(universe[y * width + x] ? "##" : "  ");
+        }
+    }
+    printf("|\n");
+  }
+  printf("+");
+  for (int x = 0; x < width; x++) {
+      printf("--");
+  }
+  printf("+\n");
+}
+
 double wall_time (void) {
   struct timeval t;
   gettimeofday(&t, NULL);
@@ -103,6 +147,9 @@ int main (int argc, char **argv) {
     for (unsigned x = 0; x < width; x++) {
       if (test[y * width + x] != reference[y * width + x]) {
         printf("Test life results do not match reference.\n");
+        show(height, width, test);
+        show(height, width, reference);
+        show_diff(height, width, test, reference);
         exit(-1);
       }
     }

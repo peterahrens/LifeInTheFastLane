@@ -2,8 +2,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <immintrin.h>
 
-#define             WORD sizeof(unsigned)
+#define             WORD (256/8)
 #define        OUT_GHOST WORD * 1
 #define         IN_GHOST (OUT_GHOST + 1)
 #define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD) //should be multiple of word size
@@ -70,7 +71,8 @@ unsigned *life (const unsigned height,
   }
   for (unsigned i = 0; i < iters; i++) {
     //copy the ghost cells once every IN_GHOST iterations
-    if (i % IN_GHOST == 0) {
+    //if (i % IN_GHOST == 0)  TODO
+    if (1) {
       unsigned *universe_words = (unsigned*)universe;
       for (unsigned y = 0; y < padded_height; y++) {
         if (y < Y_IN_GHOST) {
@@ -104,22 +106,50 @@ unsigned *life (const unsigned height,
       }
     }
     //evolve
+    __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
+                                   1, 1, 1, 1, 1, 1, 1, 1,
+                                   1, 1, 1, 1, 1, 1, 1, 1,
+                                   1, 1, 1, 1, 1, 1, 1, 1);
+    __m256i twos = _mm256_slli_epi32(ones, 1);
+    __m256i threes = _mm256_or_si256(ones, twos);
     for (unsigned y = (Y_IN_GHOST - OUT_GHOST); y < height + Y_IN_GHOST + OUT_GHOST; y++) {
-      for (unsigned x = (X_IN_GHOST - OUT_GHOST); x < width + X_IN_GHOST + OUT_GHOST; x++) {
-        unsigned n = 0;
+      for (unsigned x = (X_IN_GHOST - OUT_GHOST); x + WORD <= width + X_IN_GHOST + OUT_GHOST; x += WORD) {
+        /*
+        __m256i n;
+        __m256i alive;
         uint8_t *u = universe + (y - 1) * padded_width + x - 1;
-        n += u[0];
-        n += u[1];
-        n += u[2];
+        n = _mm256_loadu_si256((__m256i*)u);
+        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 1)), n); // TODO
+        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
         u += padded_width;
-        n += u[0];
-        unsigned alive = u[1];
-        n += u[2];
+        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)u), n);
+        alive = _mm256_loadu_si256((__m256i*)(u + 1));                   // TODO
+        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
         u += padded_width;
-        n += u[0];
-        n += u[1];
-        n += u[2];
-        new[y * padded_width + x] = (n == 3 || (n == 2 && alive));
+        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)u), n);
+        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 1)), n);// TODO
+        n = _mm256_add_epi8(_mm256_loadu_si256((__m256i*)(u + 2)), n);
+        _mm256_storeu_si256((__m256i*)(new + y * padded_width + x),// TODO
+          _mm256_or_si256(
+          _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
+          _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
+        */
+        for(int j = 0; j < 32; j++){
+          unsigned n = 0;
+          uint8_t *u = universe + (y - 1) * padded_width + x - 1 + j;
+          n += u[0];
+          n += u[1];
+          n += u[2];
+          u += padded_width;
+          n += u[0];
+          unsigned alive = u[1];
+          n += u[2];
+          u += padded_width;
+          n += u[0];
+          n += u[1];
+          n += u[2];
+          new[y * padded_width + x + j] = (n == 3 || (n == 2 && alive));
+        }
       }
     }
     uint8_t *tmp = universe;
