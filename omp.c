@@ -6,7 +6,7 @@
 #include <omp.h>
 
 #define             WORD (256/8)
-#define        OUT_GHOST 32
+#define        OUT_GHOST 3
 #define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)
 #define      Y_OUT_GHOST OUT_GHOST
 #define         IN_GHOST (OUT_GHOST + 1)
@@ -36,6 +36,12 @@ unsigned *life (const unsigned height,
   const unsigned padded_width_words = padded_width/WORD;
   uint8_t *universe = (uint8_t*)aligned_malloc(padded_height * padded_width);
   uint8_t *new = (uint8_t*)aligned_malloc(padded_height * padded_width);
+  const __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
+                                       1, 1, 1, 1, 1, 1, 1, 1,
+                                       1, 1, 1, 1, 1, 1, 1, 1,
+                                       1, 1, 1, 1, 1, 1, 1, 1);
+  const __m256i twos = _mm256_slli_epi32(ones, 1);
+  const __m256i threes = _mm256_or_si256(ones, twos);
 
   //pack into padded working array
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {
@@ -87,18 +93,12 @@ unsigned *life (const unsigned height,
       }
     }
 
-    //evolve IN_GHOST times
     #pragma omp parallel
     {
       uint8_t *my_universe = universe;
       uint8_t *my_new = new;
 
-      const __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1);
-      const __m256i twos = _mm256_slli_epi32(ones, 1);
-      const __m256i threes = _mm256_or_si256(ones, twos);
+      //evolve IN_GHOST times
       for (unsigned j = 0; j < IN_GHOST & j + i < iters; j++) {
         #pragma omp for
         for (unsigned y = (Y_IN_GHOST - Y_OUT_GHOST); y < height + Y_IN_GHOST + Y_OUT_GHOST; y++) {

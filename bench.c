@@ -76,10 +76,10 @@ int main (int argc, char **argv) {
     height = atoi(argv[2]);
   }
   if (argc > 3) {
-    check = atoi(argv[3]);
+    iters = atoi(argv[3]);
   }
   if (argc > 4) {
-    iters = atoi(argv[3]);
+    check = atoi(argv[3]);
   }
   if (argc > 5) {
     display = atoi(argv[4]);
@@ -91,11 +91,11 @@ int main (int argc, char **argv) {
   if (height <= 0) {
     height = 2048;
   }
-  if (check <= 0) {
-    check = 0;
-  }
   if (iters <= 0) {
     iters = 2048;
+  }
+  if (check <= 0) {
+    check = 0;
   }
   if (display <= 0) {
     display = 0;
@@ -169,10 +169,6 @@ int main (int argc, char **argv) {
     printf("Reference time: %g\n", reference_time);
   }
   printf("     Test time: %g\n", test_time);
-  if (check) {
-    printf("Reference freq: %g\n", (height * width * iters) / reference_time);
-  }
-  printf("     Test freq: %g\n", (height * width * iters) / test_time);
   if (check) {
     printf("       Speedup: %g\n", reference_time / test_time);
   }

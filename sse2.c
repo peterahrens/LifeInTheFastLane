@@ -6,7 +6,7 @@
 #include <omp.h>
 
 #define             WORD (128/8)
-#define        OUT_GHOST 8
+#define        OUT_GHOST 1
 #define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)
 #define      Y_OUT_GHOST OUT_GHOST
 #define         IN_GHOST (OUT_GHOST + 1)
@@ -89,10 +89,10 @@ unsigned *life (const unsigned height,
 
     //evolve IN_GHOST times
     for (unsigned j = 0; j < IN_GHOST & j + i < iters; j++) {
-      __m128i ones = _mm_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
-                                  1, 1, 1, 1, 1, 1, 1, 1);
-      __m128i twos = _mm_slli_epi32(ones, 1);
-      __m128i threes = _mm_or_si128(ones, twos);
+      const __m128i ones = _mm_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
+                                        1, 1, 1, 1, 1, 1, 1, 1);
+      const __m128i twos = _mm_slli_epi32(ones, 1);
+      const __m128i threes = _mm_or_si128(ones, twos);
       for (unsigned y = (Y_IN_GHOST - Y_OUT_GHOST); y < height + Y_IN_GHOST + Y_OUT_GHOST; y++) {
         for (unsigned x = (X_IN_GHOST - X_OUT_GHOST); x + WORD <= width + X_IN_GHOST + X_OUT_GHOST; x += WORD) {
           __m128i n;

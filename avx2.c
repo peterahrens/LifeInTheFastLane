@@ -5,7 +5,7 @@
 #include <immintrin.h>
 
 #define             WORD (256/8)
-#define        OUT_GHOST 32
+#define        OUT_GHOST 1
 #define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)
 #define      Y_OUT_GHOST OUT_GHOST
 #define         IN_GHOST (OUT_GHOST + 1)
@@ -88,12 +88,12 @@ unsigned *life (const unsigned height,
 
     //evolve IN_GHOST times
     for (unsigned j = 0; j < IN_GHOST & j + i < iters; j++) {
-      __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1);
-      __m256i twos = _mm256_slli_epi32(ones, 1);
-      __m256i threes = _mm256_or_si256(ones, twos);
+      const __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
+                                           1, 1, 1, 1, 1, 1, 1, 1,
+                                           1, 1, 1, 1, 1, 1, 1, 1,
+                                           1, 1, 1, 1, 1, 1, 1, 1);
+      const __m256i twos = _mm256_slli_epi32(ones, 1);
+      const __m256i threes = _mm256_or_si256(ones, twos);
       for (unsigned y = (Y_IN_GHOST - Y_OUT_GHOST); y < height + Y_IN_GHOST + Y_OUT_GHOST; y++) {
         for (unsigned x = (X_IN_GHOST - X_OUT_GHOST); x + WORD <= width + X_IN_GHOST + X_OUT_GHOST; x += WORD) {
           __m256i n;

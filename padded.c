@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define             WORD sizeof(unsigned)
-#define        OUT_GHOST 4
+#define        OUT_GHOST 0
 #define         IN_GHOST (OUT_GHOST + 1)
 #define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD)
 #define       Y_IN_GHOST IN_GHOST
