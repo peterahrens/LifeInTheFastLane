@@ -6,11 +6,11 @@
 #include <omp.h>
 
 #define             WORD (256/8)
-#define        OUT_GHOST WORD * 1
+#define        OUT_GHOST 32
 #define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)
 #define      Y_OUT_GHOST OUT_GHOST
 #define         IN_GHOST (OUT_GHOST + 1)
-#define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD) //should be multiple of word size
+#define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD)
 #define       Y_IN_GHOST IN_GHOST
 #define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)
 
@@ -32,7 +32,9 @@ unsigned *life (const unsigned height,
       universe[(y * padded_width) + x] = initial[(y - Y_IN_GHOST) * width + x - X_IN_GHOST];
     }
   }
+
   for (unsigned i = 0; i < iters; i+= IN_GHOST) {
+
     //copy the ghost cells once every IN_GHOST iterations
     __m256i *universe_words = (__m256i*)universe;
     for (unsigned y = 0; y < padded_height; y++) {
@@ -109,6 +111,7 @@ unsigned *life (const unsigned height,
       new = tmp;
     }
   }
+
   //unpack into output array
   unsigned *out = (unsigned*)malloc(sizeof(unsigned) * height * width);
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {

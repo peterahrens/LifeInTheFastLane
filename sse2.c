@@ -32,7 +32,9 @@ unsigned *life (const unsigned height,
       universe[(y * padded_width) + x] = initial[(y - Y_IN_GHOST) * width + x - X_IN_GHOST];
     }
   }
+
   for (unsigned i = 0; i < iters; i+= IN_GHOST) {
+
     //copy the ghost cells once every IN_GHOST iterations
     __m128i *universe_words = (__m128i*)universe;
     for (unsigned y = 0; y < padded_height; y++) {
