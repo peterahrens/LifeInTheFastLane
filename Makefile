@@ -1,5 +1,5 @@
-CC = gcc-6
-CFLAGS = -std=c99 -O3 -march=native
+CC = gcc
+CFLAGS = -std=c99 -march=native -g
 OMPFLAGS = -fopenmp
 
 all: simple padded sse2 avx2 omp

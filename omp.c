@@ -14,6 +14,17 @@
 #define       Y_IN_GHOST IN_GHOST
 #define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)
 
+void *aligned_malloc(int size) {
+    char *mem = malloc(sizeof(void*) + size + WORD - 1);
+    void **ptr = (void**)(((uintptr_t)(mem + sizeof(void*) + WORD - 1)) & ~((uintptr_t)(WORD - 1)));
+    ptr[-1] = mem;
+    return ptr;
+}
+
+void aligned_free(void *ptr) {
+    free(((void**)ptr)[-1]);
+}
+
 unsigned *life (const unsigned height,
                 const unsigned width,
                 const unsigned * const initial,
@@ -23,8 +34,8 @@ unsigned *life (const unsigned height,
   const unsigned padded_width = width + 2 * X_IN_GHOST;
   const unsigned width_words = width/WORD;
   const unsigned padded_width_words = padded_width/WORD;
-  uint8_t *universe = (uint8_t*)malloc(padded_height * padded_width);
-  uint8_t *new = (uint8_t*)malloc(padded_height * padded_width);
+  uint8_t *universe = (uint8_t*)aligned_malloc(padded_height * padded_width);
+  uint8_t *new = (uint8_t*)aligned_malloc(padded_height * padded_width);
 
   double   pack_time = 0;
   double  ghost_time = 0;
@@ -147,7 +158,7 @@ unsigned *life (const unsigned height,
   printf("evolve %5.5g\t%g\n", 100.0 * evolve_time/total_time, evolve_time);
   printf("unpack %5.5g\t%g\n", 100.0 * unpack_time/total_time, unpack_time);
   printf("total  %5.5g\t%g\n", 100.0, total_time);
-  free(new);
-  free(universe);
+  aligned_free(new);
+  aligned_free(universe);
   return out;
 }
