@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/time.h>
+#include <omp.h>
 
 #define TIMEOUT 0.1
 
@@ -102,7 +103,7 @@ int main (int argc, char **argv) {
     }
   }
 
-  double reference_time;
+  double reference_time = 0;
   unsigned *reference;
   for (trials = 1; reference_time < TIMEOUT; trials *= 2) {
     // Warm-up
@@ -118,11 +119,12 @@ int main (int argc, char **argv) {
     reference = reference_life(height, width, initial, iters, display);
     reference_time += wall_time();
   }
+  trials /= 2;
   reference_time /= trials;
 
-  double test_time;
+  double test_time = 0;
   unsigned *test;
-  for (unsigned trials = 1; test_time < TIMEOUT; trials *= 2) {
+  for (trials = 1; test_time < TIMEOUT; trials *= 2) {
     // Warm-up
     test = life(height, width, initial, 1, display);
     free(test);
@@ -136,6 +138,7 @@ int main (int argc, char **argv) {
     test = life(height, width, initial, iters, display);
     test_time += wall_time();
   }
+  trials /= 2;
   test_time /= trials;
 
   // Ensure that reference and test results are identical
