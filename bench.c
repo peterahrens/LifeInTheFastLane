@@ -66,6 +66,7 @@ unsigned *reference_life (unsigned height,
 int main (int argc, char **argv) {
   unsigned height = 0;
   unsigned width = 0;
+  unsigned check = 0;
   unsigned iters = 0;
   unsigned display = 0;
   unsigned trials;
@@ -75,9 +76,12 @@ int main (int argc, char **argv) {
     height = atoi(argv[2]);
   }
   if (argc > 3) {
-    iters = atoi(argv[3]);
+    check = atoi(argv[3]);
   }
   if (argc > 4) {
+    iters = atoi(argv[3]);
+  }
+  if (argc > 5) {
     display = atoi(argv[4]);
   }
 
@@ -85,10 +89,13 @@ int main (int argc, char **argv) {
     width = 2048;
   }
   if (height <= 0) {
-    height = 2047;
+    height = 2048;
+  }
+  if (check <= 0) {
+    check = 0;
   }
   if (iters <= 0) {
-    iters = 256;
+    iters = 2048;
   }
   if (display <= 0) {
     display = 0;
@@ -105,22 +112,24 @@ int main (int argc, char **argv) {
 
   double reference_time = 0;
   unsigned *reference;
-  for (trials = 1; reference_time < TIMEOUT; trials *= 2) {
-    // Warm-up
-    reference = reference_life(height, width, initial, 1, display);
-    free(reference);
-
-    // Benchmark n runs of life
-    reference_time = -wall_time();
-    for (int i = 0; i < trials - 1; ++i){
-      reference = reference_life(height, width, initial, iters, display);
+  if (check) {
+    for (trials = 1; reference_time < TIMEOUT; trials *= 2) {
+      // Warm-up
+      reference = reference_life(height, width, initial, 1, display);
       free(reference);
+
+      // Benchmark n runs of life
+      reference_time = -wall_time();
+      for (int i = 0; i < trials - 1; ++i){
+        reference = reference_life(height, width, initial, iters, display);
+        free(reference);
+      }
+      reference = reference_life(height, width, initial, iters, display);
+      reference_time += wall_time();
     }
-    reference = reference_life(height, width, initial, iters, display);
-    reference_time += wall_time();
+    trials /= 2;
+    reference_time /= trials;
   }
-  trials /= 2;
-  reference_time /= trials;
 
   double test_time = 0;
   unsigned *test;
@@ -141,27 +150,37 @@ int main (int argc, char **argv) {
   trials /= 2;
   test_time /= trials;
 
-  // Ensure that reference and test results are identical
-  for (unsigned y = 0; y < height; y++) {
-    for (unsigned x = 0; x < width; x++) {
-      if (test[y * width + x] != reference[y * width + x]) {
-        printf("Test life results do not match reference.\n");
-        show(height, width, test);
-        show(height, width, reference);
-        show_diff(height, width, test, reference);
-        exit(-1);
+  if (check) {
+    // Ensure that reference and test results are identical
+    for (unsigned y = 0; y < height; y++) {
+      for (unsigned x = 0; x < width; x++) {
+        if (test[y * width + x] != reference[y * width + x]) {
+          printf("Test life results do not match reference.\n");
+          show(height, width, test);
+          show(height, width, reference);
+          show_diff(height, width, test, reference);
+          exit(-1);
+        }
       }
     }
   }
 
-  printf("Reference time: %g\n", reference_time);
+  if (check) {
+    printf("Reference time: %g\n", reference_time);
+  }
   printf("     Test time: %g\n", test_time);
-  printf("Reference freq: %g\n", (height * width * iters) / reference_time);
+  if (check) {
+    printf("Reference freq: %g\n", (height * width * iters) / reference_time);
+  }
   printf("     Test freq: %g\n", (height * width * iters) / test_time);
-  printf("       Speedup: %g\n", reference_time / test_time);
+  if (check) {
+    printf("       Speedup: %g\n", reference_time / test_time);
+  }
 
   free(initial);
-  free(reference);
+  if (check) {
+    free(reference);
+  }
   free(test);
 
   return 0;

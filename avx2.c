@@ -129,6 +129,7 @@ unsigned *life (const unsigned height,
       out[(y - Y_IN_GHOST) * width + x - X_IN_GHOST] = universe[(y * padded_width) + x];
     }
   }
+
   aligned_free(new);
   aligned_free(universe);
   return out;
