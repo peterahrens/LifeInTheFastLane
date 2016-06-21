@@ -3,9 +3,12 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <pmmintrin.h>
+#include <omp.h>
 
 #define             WORD (128/8)
-#define        OUT_GHOST WORD * 1
+#define        OUT_GHOST 8
+#define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)
+#define      Y_OUT_GHOST OUT_GHOST
 #define         IN_GHOST (OUT_GHOST + 1)
 #define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD) //should be multiple of word size
 #define       Y_IN_GHOST IN_GHOST
@@ -29,79 +32,80 @@ unsigned *life (const unsigned height,
       universe[(y * padded_width) + x] = initial[(y - Y_IN_GHOST) * width + x - X_IN_GHOST];
     }
   }
-  for (unsigned i = 0; i < iters; i++) {
+  for (unsigned i = 0; i < iters; i+= IN_GHOST) {
     //copy the ghost cells once every IN_GHOST iterations
-    if (i % IN_GHOST == 0){
-      __m128i *universe_words = (__m128i*)universe;
-      for (unsigned y = 0; y < padded_height; y++) {
-        if (y < Y_IN_GHOST) {
-          for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + (y + height) * padded_width_words + x + width_words));
-          }
-          for (unsigned x = X_IN_GHOST_WORDS; x < width_words + X_IN_GHOST_WORDS; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + (y + height) * padded_width_words + x));
-          }
-          for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + (y + height) * padded_width_words + x - width_words));
-          }
-        } else if (y < height + Y_IN_GHOST) {
-          for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + y * padded_width_words + x + width_words));
-          }
-          for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + y * padded_width_words + x - width_words));
-          }
-        } else {
-          for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + (y - height) * padded_width_words + x + width_words));
-          }
-          for (unsigned x = X_IN_GHOST_WORDS; x < width_words + X_IN_GHOST_WORDS; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + (y - height) * padded_width_words + x));
-          }
-          for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
-            _mm_store_si128(universe_words + y * padded_width_words + x,
-              _mm_load_si128(universe_words + (y - height) * padded_width_words + x - width_words));
-          }
+    __m128i *universe_words = (__m128i*)universe;
+    for (unsigned y = 0; y < padded_height; y++) {
+      if (y < Y_IN_GHOST) {
+        for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + (y + height) * padded_width_words + x + width_words));
+        }
+        for (unsigned x = X_IN_GHOST_WORDS; x < width_words + X_IN_GHOST_WORDS; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + (y + height) * padded_width_words + x));
+        }
+        for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + (y + height) * padded_width_words + x - width_words));
+        }
+      } else if (y < height + Y_IN_GHOST) {
+        for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + y * padded_width_words + x + width_words));
+        }
+        for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + y * padded_width_words + x - width_words));
+        }
+      } else {
+        for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + (y - height) * padded_width_words + x + width_words));
+        }
+        for (unsigned x = X_IN_GHOST_WORDS; x < width_words + X_IN_GHOST_WORDS; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + (y - height) * padded_width_words + x));
+        }
+        for (unsigned x = width_words + X_IN_GHOST_WORDS ; x < padded_width_words; x++) {
+          _mm_store_si128(universe_words + y * padded_width_words + x,
+            _mm_load_si128(universe_words + (y - height) * padded_width_words + x - width_words));
         }
       }
     }
-    //evolve
-    __m128i ones = _mm_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
-                                1, 1, 1, 1, 1, 1, 1, 1);
-    __m128i twos = _mm_slli_epi32(ones, 1);
-    __m128i threes = _mm_or_si128(ones, twos);
-    for (unsigned y = (Y_IN_GHOST - OUT_GHOST); y < height + Y_IN_GHOST + OUT_GHOST; y++) {
-      for (unsigned x = (X_IN_GHOST - OUT_GHOST); x + WORD <= width + X_IN_GHOST + OUT_GHOST; x += WORD) {
-        __m128i n;
-        __m128i alive;
-        uint8_t *u = universe + (y - 1) * padded_width + x - 1;
-        n = _mm_lddqu_si128((__m128i*)u);
-        n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
-        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
-        u += padded_width;
-        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
-        alive = _mm_load_si128((__m128i*)(u + 1));
-        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
-        u += padded_width;
-        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
-        n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
-        n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
-        _mm_store_si128((__m128i*)(new + y * padded_width + x),
-          _mm_or_si128(
-          _mm_and_si128(ones, _mm_cmpeq_epi8(n, threes)),
-          _mm_and_si128(alive, _mm_cmpeq_epi8(n, twos))));
+
+    //evolve IN_GHOST times
+    for (unsigned j = 0; j < IN_GHOST & j + i < iters; j++) {
+      __m128i ones = _mm_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
+                                  1, 1, 1, 1, 1, 1, 1, 1);
+      __m128i twos = _mm_slli_epi32(ones, 1);
+      __m128i threes = _mm_or_si128(ones, twos);
+      for (unsigned y = (Y_IN_GHOST - Y_OUT_GHOST); y < height + Y_IN_GHOST + Y_OUT_GHOST; y++) {
+        for (unsigned x = (X_IN_GHOST - X_OUT_GHOST); x + WORD <= width + X_IN_GHOST + X_OUT_GHOST; x += WORD) {
+          __m128i n;
+          __m128i alive;
+          uint8_t *u = universe + (y - 1) * padded_width + x - 1;
+          n = _mm_lddqu_si128((__m128i*)u);
+          n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
+          n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
+          u += padded_width;
+          n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
+          alive = _mm_load_si128((__m128i*)(u + 1));
+          n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
+          u += padded_width;
+          n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
+          n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
+          n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
+          _mm_store_si128((__m128i*)(new + y * padded_width + x),
+            _mm_or_si128(
+            _mm_and_si128(ones, _mm_cmpeq_epi8(n, threes)),
+            _mm_and_si128(alive, _mm_cmpeq_epi8(n, twos))));
+        }
       }
+      uint8_t *tmp = universe;
+      universe = new;
+      new = tmp;
     }
-    uint8_t *tmp = universe;
-    universe = new;
-    new = tmp;
   }
   //unpack into output array
   unsigned *out = (unsigned*)malloc(sizeof(unsigned) * height * width);

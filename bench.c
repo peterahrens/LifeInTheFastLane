@@ -85,7 +85,7 @@ int main (int argc, char **argv) {
     width = 2048;
   }
   if (height <= 0) {
-    height = 2048;
+    height = 2047;
   }
   if (iters <= 0) {
     iters = 256;

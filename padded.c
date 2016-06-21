@@ -10,46 +10,6 @@
 #define       Y_IN_GHOST IN_GHOST
 #define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)
 
-static void show (unsigned height, unsigned width, unsigned *universe) {
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-  for (int y = 0; y < height; y++) {
-    printf("|");
-    for (int x = 0; x < width; x++) {
-        printf(universe[y * width + x] ? "##" : "  ");
-    }
-    printf("|\n");
-  }
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-}
-
-static void show_char (unsigned height, unsigned width, uint8_t *universe) {
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-  for (int y = 0; y < height; y++) {
-    printf("|");
-    for (int x = 0; x < width; x++) {
-        printf(universe[y * width + x] ? "##" : "  ");
-    }
-    printf("|\n");
-  }
-  printf("+");
-  for (int x = 0; x < width; x++) {
-      printf("--");
-  }
-  printf("+\n");
-}
-
 unsigned *life (const unsigned height,
                 const unsigned width,
                 const unsigned * const initial,
