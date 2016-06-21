@@ -26,15 +26,28 @@ unsigned *life (const unsigned height,
   uint8_t *universe = (uint8_t*)malloc(padded_height * padded_width);
   uint8_t *new = (uint8_t*)malloc(padded_height * padded_width);
 
+  double   pack_time = 0;
+  double  ghost_time = 0;
+  double evolve_time = 0;
+  double unpack_time = 0;
+  double  total_time = 0;
+
+
+  total_time -= omp_get_wtime();
+  pack_time -= omp_get_wtime();
   //pack into padded working array
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {
     for (unsigned x = X_IN_GHOST; x < width + X_IN_GHOST; x++) {
       universe[(y * padded_width) + x] = initial[(y - Y_IN_GHOST) * width + x - X_IN_GHOST];
     }
   }
+  pack_time += omp_get_wtime();
+
+  omp_set_num_threads(omp_get_num_procs());
 
   for (unsigned i = 0; i < iters; i+= IN_GHOST) {
 
+    ghost_time -= omp_get_wtime();
     //copy the ghost cells once every IN_GHOST iterations
     __m256i *universe_words = (__m256i*)universe;
     for (unsigned y = 0; y < padded_height; y++) {
@@ -75,16 +88,19 @@ unsigned *life (const unsigned height,
         }
       }
     }
+    ghost_time += omp_get_wtime();
 
+    evolve_time -= omp_get_wtime();
     //evolve IN_GHOST times
     for (unsigned j = 0; j < IN_GHOST & j + i < iters; j++) {
-      __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1,
-                                     1, 1, 1, 1, 1, 1, 1, 1);
-      __m256i twos = _mm256_slli_epi32(ones, 1);
-      __m256i threes = _mm256_or_si256(ones, twos);
+      #pragma omp parallel for
       for (unsigned y = (Y_IN_GHOST - Y_OUT_GHOST); y < height + Y_IN_GHOST + Y_OUT_GHOST; y++) {
+        const __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
+                                       1, 1, 1, 1, 1, 1, 1, 1,
+                                       1, 1, 1, 1, 1, 1, 1, 1,
+                                       1, 1, 1, 1, 1, 1, 1, 1);
+        const __m256i twos = _mm256_slli_epi32(ones, 1);
+        const __m256i threes = _mm256_or_si256(ones, twos);
         for (unsigned x = (X_IN_GHOST - X_OUT_GHOST); x + WORD <= width + X_IN_GHOST + X_OUT_GHOST; x += WORD) {
           __m256i n;
           __m256i alive;
@@ -110,8 +126,10 @@ unsigned *life (const unsigned height,
       universe = new;
       new = tmp;
     }
+    evolve_time += omp_get_wtime();
   }
 
+  unpack_time -= omp_get_wtime();
   //unpack into output array
   unsigned *out = (unsigned*)malloc(sizeof(unsigned) * height * width);
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {
@@ -119,6 +137,16 @@ unsigned *life (const unsigned height,
       out[(y - Y_IN_GHOST) * width + x - X_IN_GHOST] = universe[(y * padded_width) + x];
     }
   }
+  unpack_time += omp_get_wtime();
+
+  total_time += omp_get_wtime();
+
+  printf("       %%    \ttime\n");
+  printf("pack   %5.5g\t%g\n", 100.0 * pack_time/total_time, pack_time);
+  printf("ghost  %5.5g\t%g\n", 100.0 * ghost_time/total_time, ghost_time);
+  printf("evolve %5.5g\t%g\n", 100.0 * evolve_time/total_time, evolve_time);
+  printf("unpack %5.5g\t%g\n", 100.0 * unpack_time/total_time, unpack_time);
+  printf("total  %5.5g\t%g\n", 100.0, total_time);
   free(new);
   free(universe);
   return out;
