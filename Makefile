@@ -1,4 +1,4 @@
-CC = gcc
+CC = gcc-6
 CFLAGS = -std=c99 -march=native -O3
 OMPFLAGS = -fopenmp
 

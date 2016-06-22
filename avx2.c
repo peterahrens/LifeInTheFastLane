@@ -1,6 +1,4 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <immintrin.h>
 
@@ -27,8 +25,7 @@ void aligned_free(void *ptr) {
 unsigned *life (const unsigned height,
                 const unsigned width,
                 const unsigned * const initial,
-                const unsigned iters,
-                const unsigned display) {
+                const unsigned iters) {
   const unsigned padded_height = height + 2 * Y_IN_GHOST;
   const unsigned padded_width = width + 2 * X_IN_GHOST;
   const unsigned width_words = width/WORD;

@@ -1,16 +1,13 @@
-#include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <stdint.h>
 #include <pmmintrin.h>
-#include <omp.h>
 
 #define             WORD (128/8)
 #define        OUT_GHOST 1
 #define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)
 #define      Y_OUT_GHOST OUT_GHOST
 #define         IN_GHOST (OUT_GHOST + 1)
-#define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD) //should be multiple of word size
+#define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD)
 #define       Y_IN_GHOST IN_GHOST
 #define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)
 
@@ -28,8 +25,7 @@ void aligned_free(void *ptr) {
 unsigned *life (const unsigned height,
                 const unsigned width,
                 const unsigned * const initial,
-                const unsigned iters,
-                const unsigned display) {
+                const unsigned iters) {
   const unsigned padded_height = height + 2 * Y_IN_GHOST;
   const unsigned padded_width = width + 2 * X_IN_GHOST;
   const unsigned width_words = width/WORD;

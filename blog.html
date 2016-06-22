@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Life in the fast lane</title>
+  </head>
+  <body>
+
+    <h1>Life in the fast lane</h1>
+
+    <p>Conway's Game of Life has been an inspiration to computer scientists since it's creation in 1970. Life is a simulation of cells arranged in a two-dimensional grid. Each cell can be in one of two states, alive or dead. I will leave the <a href="https://en.wikipedia.org/wiki/Conway's_Game_of_Life">full explanation</a> of Life to Wikipedia, and only restate here the rules regarding the interactions between cells:</p>
+
+    <ul>
+      <li>Any live cell with fewer than two live neighbours dies, as if caused by under-population.</li>
+      <li>Any live cell with two or three live neighbours lives on to the next generation.</li>
+      <li>Any live cell with more than three live neighbours dies, as if by over-population.</li>
+      <li>Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction.</li>
+    </ul>
+
+    <p>This text serves as an explanation of my process in getting the fastest possible performance out of Life. To make this guide representative of many problems in performance optimization for scientific kernels, I have disallowed myself from pursuing algorithmic optimizations (that said, if you haven't seen <a href="https://en.wikipedia.org/wiki/Hashlife">Hashlife</a>, it is worth checking out). All the optimzation techniques you see here should be applicable to a wide variety of codes, and will focus on optimizing the naive algorithm for a given architecture. </p>
+
+    <p>I should give anyone reading this guide an important warning before I start. These techniques can make the code go faster, but they increase code complexity by several orders of magnitude and tend to need different tunings for different machines. If someone else has written an optimized version of code that does what you want to do, I would strongly reccomend you use that code before trying the techniques you see here. Use optimized libraries, don't write them unless it is your job. </p>
+
+    <h2>reference.c</h2>
+
+    <p>Like many logical simulations, life is fully deterministic. This means that we can determine if our simulation is correct by comparing our output to a reference implementation. The reference implementation we use will also provide a starting point for optimization. The reference implementation I use has been adapted from the <a href="http://rosettacode.org/wiki/Conway's_Game_of_Life#C">RosettaCode</a> C implementation. Rather than expound on the code for ages, I will let you read it yourself. Explanatory comments are included.
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #557799">#include &lt;stdlib.h&gt;</span>
+
+<span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span><span style="color: #0066BB; font-weight: bold">reference_life</span> (<span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> height,
+                          <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> width,
+                          <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>initial,
+                          <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> iters) {
+  <span style="color: #888888">//&quot;universe&quot; is the current game of life grid. We will store &quot;alive&quot; as a 1</span>
+  <span style="color: #888888">//and &quot;dead&quot; as a 0.</span>
+  <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>universe <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">unsigned</span><span style="color: #333333">*</span>)malloc(<span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">unsigned</span>) <span style="color: #333333">*</span> height <span style="color: #333333">*</span> width);
+
+  <span style="color: #888888">//&quot;new&quot; is a scratch array to store the next iteration as it is calculated.</span>
+  <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>new <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">unsigned</span><span style="color: #333333">*</span>)malloc(<span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">unsigned</span>) <span style="color: #333333">*</span> height <span style="color: #333333">*</span> width);
+
+  <span style="color: #888888">//We must load the initial configuration into the universe memory.</span>
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> height; y<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> width; x<span style="color: #333333">++</span>) {
+      universe[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> initial[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x];
+    }
+  }
+
+  <span style="color: #888888">//The main loop: a likely target for later optimization.</span>
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> height; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> width; x<span style="color: #333333">++</span>) {
+        <span style="color: #888888">//Here we loop over the neighbors and count how many are alive.</span>
+        <span style="color: #333399; font-weight: bold">unsigned</span> n <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>;
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> yy <span style="color: #333333">=</span> y <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>; yy <span style="color: #333333">&lt;=</span> y <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>; yy<span style="color: #333333">++</span>) {
+          <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> xx <span style="color: #333333">=</span> x <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>; xx <span style="color: #333333">&lt;=</span> x <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>; xx<span style="color: #333333">++</span>) {
+            <span style="color: #888888">//This is a redundant way to perform this operation. Since &quot;alive&quot;</span>
+            <span style="color: #888888">//is represented as 1 and &quot;dead&quot; is represented as 0, we can just</span>
+            <span style="color: #888888">//add universe[...] to n without the conditional branch.</span>
+            <span style="color: #008800; font-weight: bold">if</span> (universe[((yy <span style="color: #333333">+</span> height) <span style="color: #333333">%</span> height) <span style="color: #333333">*</span> width
+                         <span style="color: #333333">+</span> ((xx <span style="color: #333333">+</span> width) <span style="color: #333333">%</span> width)]) {
+              n<span style="color: #333333">++</span>;
+            }
+          }
+        }
+        <span style="color: #888888">//This statement is to avoid counting a cell as a neighbor of itself.</span>
+        <span style="color: #008800; font-weight: bold">if</span> (universe[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x]) {
+          n<span style="color: #333333">--</span>;
+        }
+        <span style="color: #888888">//This fairly tight logic determines the status of the cell in the next </span>
+        <span style="color: #888888">//iteration. We have to store this in a new array to avoid modifying</span>
+        <span style="color: #888888">//the original array as we calculate the new one.</span>
+        new[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">3</span> <span style="color: #333333">||</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">&amp;&amp;</span> universe[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x]));
+      }
+    }
+    <span style="color: #888888">//These loops copy the new state array into the current state array,</span>
+    <span style="color: #888888">//completing an iteration.</span>
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> height; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> width; x<span style="color: #333333">++</span>) {
+        universe[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> new[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x];
+      }
+    }
+  }
+  free(new);
+  <span style="color: #008800; font-weight: bold">return</span> universe;
+}
+</pre></div>
+
+
+    <p>As you can see, there are several problems with the reference implementation. It has lots of conditional and arithmetic logic in the inner loop and it copies the entire universe every iteration. However, it is easy to understand, and it is correct (two properties not everyone can say of their code!). We will only be using the reference code to check correctness of our optimized versions and to have something to compare to.
+
+
+    <h2>bench.c</h2>
+
+    <p>When optimizing code, it is also important to have benchmarking and test code. Having an accurate benchmark that tests a common case for your code gives you the information you need to make optimization decisions. Our benchmark code includes test code as well. Rather than paste the whole file, I'll only include the highlights here.</p>
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #888888">//Return time time of day as a double-precision floating point value.</span>
+<span style="color: #333399; font-weight: bold">double</span> <span style="color: #0066BB; font-weight: bold">wall_time</span> (<span style="color: #333399; font-weight: bold">void</span>) {
+  <span style="color: #008800; font-weight: bold">struct</span> timeval t;
+  <span style="color: #888888">//It is critically important to use an accurate timer. Many common functions</span>
+  <span style="color: #888888">//that return the time are not accurate enough for timing code. Since timers</span>
+  <span style="color: #888888">//are typically system-specific, research timers for your system.</span>
+  <span style="color: #888888">//Surprisingly, omp_get_wtime() is quite good and is available everywhere</span>
+  <span style="color: #888888">//there is OpenMP.</span>
+  gettimeofday(<span style="color: #333333">&amp;</span>t, <span style="color: #007020">NULL</span>);
+  <span style="color: #008800; font-weight: bold">return</span> <span style="color: #6600EE; font-weight: bold">1.0</span><span style="color: #333333">*</span>t.tv_sec <span style="color: #333333">+</span> <span style="color: #6600EE; font-weight: bold">1.0e-6</span><span style="color: #333333">*</span>t.tv_usec;
+}
+</pre></div>
+
+
+    <p> Note that in our benchmark, <code>TIMEOUT</code> is set to 0.1 seconds</p>
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #333399; font-weight: bold">double</span> test_time <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>;
+  <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>test;
+
+  <span style="color: #888888">//We must run the benchmarking application for a sufficient length of time</span>
+  <span style="color: #888888">//to avoid small variations in processing speed. We do this by running an</span>
+  <span style="color: #888888">//increasing number of trials until it takes at least TIMEOUT seconds.</span>
+  <span style="color: #008800; font-weight: bold">for</span> (trials <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">1</span>; test_time <span style="color: #333333">&lt;</span> TIMEOUT; trials <span style="color: #333333">*=</span> <span style="color: #0000DD; font-weight: bold">2</span>) {
+
+    <span style="color: #888888">//Unless you want to measure the cache warm-up time, it is usually a good</span>
+    <span style="color: #888888">//idea to run the problem for one iteration first to load the problem</span>
+    <span style="color: #888888">//into cache.</span>
+    test <span style="color: #333333">=</span> life(height, width, initial, <span style="color: #0000DD; font-weight: bold">1</span>);
+    free(test);
+
+    <span style="color: #888888">//Benchmark &quot;trials&quot; runs of life.</span>
+    test_time <span style="color: #333333">=</span> <span style="color: #333333">-</span>wall_time();
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> trials <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>; <span style="color: #333333">++</span>i){
+      test <span style="color: #333333">=</span> life(height, width, initial, iters);
+      free(test);
+    }
+    test <span style="color: #333333">=</span> life(height, width, initial, iters);
+    test_time <span style="color: #333333">+=</span> wall_time();
+  }
+  trials <span style="color: #333333">/=</span> <span style="color: #0000DD; font-weight: bold">2</span>;
+  test_time <span style="color: #333333">/=</span> trials;
+</pre></div>
+
+    <p>As you can see, writing good benchmark code is more complicated than slapping a timer on both sides of the loop.</p>
+
+    <h2>simple.c</h2>
+
+    Before we start heavily optimizing the reference implementation, we can fix the glaring flaws in the reference implementation. Here is the new inner loop:
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i <span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> height; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> width; x<span style="color: #333333">++</span>) {
+        <span style="color: #333399; font-weight: bold">unsigned</span> n <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>;
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> yy <span style="color: #333333">=</span> y <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>; yy <span style="color: #333333">&lt;=</span> y <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>; yy<span style="color: #333333">++</span>) {
+          <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> xx <span style="color: #333333">=</span> x <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>; xx <span style="color: #333333">&lt;=</span> x <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>; xx<span style="color: #333333">++</span>) {
+              <span style="color: #888888">//Directly add &quot;universe&quot; values to &quot;n&quot;</span>
+              n <span style="color: #333333">+=</span> universe[((yy <span style="color: #333333">+</span> height) <span style="color: #333333">%</span> height) <span style="color: #333333">*</span> width
+                            <span style="color: #333333">+</span> ((xx <span style="color: #333333">+</span> width) <span style="color: #333333">%</span> width)];
+            }
+          }
+          n <span style="color: #333333">-=</span> universe[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x];
+          new[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">3</span> <span style="color: #333333">||</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">&amp;&amp;</span> universe[y <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x]));
+      }
+    }
+    <span style="color: #888888">//Instead of copying &quot;new&quot; into universe every time, just swap the pointers</span>
+    <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>tmp <span style="color: #333333">=</span> universe;
+    universe <span style="color: #333333">=</span> new;
+    new <span style="color: #333333">=</span> tmp;
+  }
+</pre></div>
+
+    <p>On a 4096x4096 grid for 256 iterations, these optimizations provide a x speedup over the reference implementation.</p>
+
+    <h2>padding.c</h2>
+
+    Here we can execute our first real optimization!
+  </body>
+</html>
