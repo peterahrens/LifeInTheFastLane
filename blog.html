@@ -16,7 +16,9 @@
       <li>Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction.</li>
     </ul>
 
-    <p>This text serves as an explanation of my process in getting the fastest possible performance out of Life. To make this guide representative of many problems in performance optimization for scientific kernels, I have disallowed myself from pursuing algorithmic optimizations (that said, if you haven't seen <a href="https://en.wikipedia.org/wiki/Hashlife">Hashlife</a>, it is worth checking out). All the optimzation techniques you see here should be applicable to a wide variety of codes, and will focus on optimizing the naive algorithm for a given architecture. </p>
+    <p>Note that in our implementation of Life, like many others, the environment wraps around to the other side at the edges, like in Pac-Man.</p>
+
+    <p>This text serves as an explanation of my process in getting very good performance out of Life. To make this guide representative of many problems in performance optimization for scientific kernels, I have disallowed myself from pursuing algorithmic optimizations (that said, if you haven't seen <a href="https://en.wikipedia.org/wiki/Hashlife">Hashlife</a>, it is worth checking out). All the optimzation techniques you see here should be applicable to a wide variety of codes, and will focus on optimizing the naive algorithm for a given architecture. </p>
 
     <p>I should give anyone reading this guide an important warning before I start. These techniques can make the code go faster, but they increase code complexity by several orders of magnitude and tend to need different tunings for different machines. If someone else has written an optimized version of code that does what you want to do, I would strongly reccomend you use that code before trying the techniques you see here. Use optimized libraries, don't write them unless it is your job. </p>
 
@@ -139,7 +141,7 @@
 
     <h2>simple.c</h2>
 
-    Before we start heavily optimizing the reference implementation, we can fix the glaring flaws in the reference implementation. Here is the new inner loop:
+    Becaues optimization make code complicated, it is adviseable to simplify the code whenever possible. Before we start heavily optimizing the reference implementation, we can fix the glaring flaws in the reference implementation. Here is the new inner loop:
 
 <!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i <span style="color: #333333">++</span>) {
     <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> height; y<span style="color: #333333">++</span>) {
@@ -167,6 +169,160 @@
 
     <h2>padding.c</h2>
 
-    Here we can execute our first real optimization!
+    <p>Finally, we are ready to implement our first real optimization! Typically, codes spend a lot of their time in the inner loop. Our inner loop includes complicated modular arithmetic on indicies and a doubly-nested for loop. Let's fix this! We can do this using a technique called "padding". In short, instead of looking to the other side of the universe to wrap around in the inner loop, we will allocate an array with extra cells on all sides ("ghost cells") and fill these cells with values from the other side of the array. That way, when the inner loop accesses beyond the the edges of the universe, it looks like the universe is wrapping around.</p>
+
+    <p>Each time we perform an iteration, we lose the outer layer of ghost cells, since they are no longer valid (we did not calculate anything on the outermost layer of the array). To avoid copying with every iteration, we can pad with multiple ghost cell layers at once, and then run several iterations before copying again.</p>
+
+    <p>The code is significantly more complicated now. If you don't understand everything at first, that's okay. Try to get the main ideas from the code, and understand the comments. Note that this code assumes that <code>width</code> is a multiple of <code>sizeof(unsigned)</code>.</p>
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #557799">#include &lt;stdlib.h&gt;</span>
+<span style="color: #557799">#include &lt;stdint.h&gt;</span>
+
+
+<span style="color: #557799">#define             WORD sizeof(unsigned)</span>
+<span style="color: #888888">//OUT_GHOST is the width of the valid ghost cells after copying IN_GHOST ghost</span>
+<span style="color: #888888">//cell values to the border and then executing one iteration. The kernel will</span>
+<span style="color: #888888">//copy IN_GHOST ghost cells, then run IN_GHOST iterations before copying ghost</span>
+<span style="color: #888888">//cells again. OUT_GHOST can be any value greater than or equal to 0.</span>
+<span style="color: #557799">#define        OUT_GHOST 0</span>
+<span style="color: #557799">#define         IN_GHOST (OUT_GHOST + 1)</span>
+<span style="color: #557799">#define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD)</span>
+<span style="color: #557799">#define       Y_IN_GHOST IN_GHOST</span>
+<span style="color: #557799">#define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)</span>
+
+<span style="color: #888888">//There are platform specific aligned malloc implementations, but it is</span>
+<span style="color: #888888">//instructive to see one written out explicitly. Allocates memory, then rounds</span>
+<span style="color: #888888">//it to a multiple of WORD. Stores a pointer to the original memory to free it.</span>
+<span style="color: #333399; font-weight: bold">void</span> <span style="color: #333333">*</span><span style="color: #0066BB; font-weight: bold">aligned_malloc</span>(<span style="color: #333399; font-weight: bold">int</span> size) {
+    <span style="color: #333399; font-weight: bold">char</span> <span style="color: #333333">*</span>mem <span style="color: #333333">=</span> malloc(<span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>) <span style="color: #333333">+</span> size <span style="color: #333333">+</span> WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>);
+    <span style="color: #333399; font-weight: bold">void</span> <span style="color: #333333">**</span>ptr <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">**</span>)(((<span style="color: #333399; font-weight: bold">uintptr_t</span>)(mem <span style="color: #333333">+</span> <span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>) <span style="color: #333333">+</span> WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>)) <span style="color: #333333">&amp;</span> <span style="color: #333333">~</span>((<span style="color: #333399; font-weight: bold">uintptr_t</span>)(WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>)));
+    ptr[<span style="color: #333333">-</span><span style="color: #0000DD; font-weight: bold">1</span>] <span style="color: #333333">=</span> mem;
+    <span style="color: #008800; font-weight: bold">return</span> ptr;
+}
+
+<span style="color: #333399; font-weight: bold">void</span> <span style="color: #0066BB; font-weight: bold">aligned_free</span>(<span style="color: #333399; font-weight: bold">void</span> <span style="color: #333333">*</span>ptr) {
+    free(((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">**</span>)ptr)[<span style="color: #333333">-</span><span style="color: #0000DD; font-weight: bold">1</span>]);
+}
+
+<span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span><span style="color: #0066BB; font-weight: bold">life</span> (<span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> height,
+                <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> width,
+                <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span> <span style="color: #008800; font-weight: bold">const</span> initial,
+                <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> iters) {
+  <span style="color: #888888">//Padding makes things ridiculously complicated. These constant values</span>
+  <span style="color: #888888">//make life a little easier.</span>
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> padded_height <span style="color: #333333">=</span> height <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">*</span> Y_IN_GHOST;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> padded_width <span style="color: #333333">=</span> width <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">*</span> X_IN_GHOST;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> width_words <span style="color: #333333">=</span> width<span style="color: #333333">/</span>WORD;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> padded_width_words <span style="color: #333333">=</span> padded_width<span style="color: #333333">/</span>WORD;
+
+  <span style="color: #888888">//Oh! The careful reader will notice that I am allocating an array of</span>
+  <span style="color: #888888">//byte-size ints! In addition to preparing us for vectorization later, this</span>
+  <span style="color: #888888">//also reduces memory traffic.</span>
+  <span style="color: #888888">//Also, this memory is aligned. Aligned memory access is typically faster</span>
+  <span style="color: #888888">//that unaligned. To keep the memory aligned on each row, we have to pad</span>
+  <span style="color: #888888">//to a multiple of the word size. We also assume the input matrix has a width</span>
+  <span style="color: #888888">//that is a multiple of the word size.</span>
+  <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>universe <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">uint8_t</span><span style="color: #333333">*</span>)aligned_malloc(padded_height <span style="color: #333333">*</span> padded_width);
+  <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>new <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">uint8_t</span><span style="color: #333333">*</span>)aligned_malloc(padded_height <span style="color: #333333">*</span> padded_width);
+
+  <span style="color: #888888">//Pack unsigned into the padded working array of uint8_t.</span>
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> Y_IN_GHOST; y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST; x <span style="color: #333333">&lt;</span> width <span style="color: #333333">+</span> X_IN_GHOST; x<span style="color: #333333">++</span>) {
+      universe[(y <span style="color: #333333">*</span> padded_width) <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> initial[(y <span style="color: #333333">-</span> Y_IN_GHOST) <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> X_IN_GHOST];
+    }
+  }
+
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i <span style="color: #333333">+=</span> IN_GHOST) {
+
+    <span style="color: #888888">//Copy the ghost cells once every IN_GHOST iterations. I have not only</span>
+    <span style="color: #888888">//simplified much of the logic (no more mod operations!), I have also</span>
+    <span style="color: #888888">//reduced the number of instructions necessary to copy by casting the</span>
+    <span style="color: #888888">//uint8_t array to unsigned and working with these larger values of a size</span>
+    <span style="color: #888888">//the system is used to working with.</span>
+    <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>universe_words <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">unsigned</span><span style="color: #333333">*</span>)universe;
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> padded_height; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">if</span> (y <span style="color: #333333">&lt;</span> Y_IN_GHOST) {
+        <span style="color: #888888">//Top left</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[(y <span style="color: #333333">+</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> width_words];
+        }
+        <span style="color: #888888">//Top middle</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST_WORDS; x <span style="color: #333333">&lt;</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[(y <span style="color: #333333">+</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x];
+        }
+        <span style="color: #888888">//Top right</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS ; x <span style="color: #333333">&lt;</span> padded_width_words; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[(y <span style="color: #333333">+</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">-</span> width_words];
+        }
+      } <span style="color: #008800; font-weight: bold">else</span> <span style="color: #008800; font-weight: bold">if</span> (y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST) {
+        <span style="color: #888888">//Middle left</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> width_words];
+        }
+        <span style="color: #888888">//Middle right</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS ; x <span style="color: #333333">&lt;</span> padded_width_words; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">-</span> width_words];
+        }
+      } <span style="color: #008800; font-weight: bold">else</span> {
+        <span style="color: #888888">//Bottom left</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[(y <span style="color: #333333">-</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> width_words];
+        }
+        <span style="color: #888888">//Bottom middle</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST_WORDS; x <span style="color: #333333">&lt;</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[(y <span style="color: #333333">-</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x];
+        }
+        <span style="color: #888888">//Bottom right</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS ; x <span style="color: #333333">&lt;</span> padded_width_words; x<span style="color: #333333">++</span>) {
+          universe_words[y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> universe_words[(y <span style="color: #333333">-</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">-</span> width_words];
+        }
+      }
+    }
+
+    <span style="color: #888888">//The valid ghost zone shrinks by one with each iteration.</span>
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> j <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; j <span style="color: #333333">&lt;</span> IN_GHOST <span style="color: #333333">&amp;&amp;</span> i <span style="color: #333333">+</span> j <span style="color: #333333">&lt;</span> iters; j<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> (Y_IN_GHOST <span style="color: #333333">-</span> OUT_GHOST); y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> OUT_GHOST; y<span style="color: #333333">++</span>) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> (X_IN_GHOST <span style="color: #333333">-</span> OUT_GHOST); x <span style="color: #333333">&lt;</span> width <span style="color: #333333">+</span> X_IN_GHOST <span style="color: #333333">+</span> OUT_GHOST; x<span style="color: #333333">++</span>) {
+          <span style="color: #888888">//The inner loop gets much simpler when you pad the array, doesn&#39;t it?</span>
+          <span style="color: #888888">//This is the main reason people pad their arrays before computation.</span>
+          <span style="color: #333399; font-weight: bold">unsigned</span> n <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>;
+          <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>u <span style="color: #333333">=</span> universe <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>;
+          <span style="color: #888888">//Note that constant offsets into memory are faster.</span>
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">0</span>];
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">1</span>];
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">2</span>];
+          u <span style="color: #333333">+=</span> padded_width;
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">0</span>];
+          <span style="color: #333399; font-weight: bold">unsigned</span> alive <span style="color: #333333">=</span> u[<span style="color: #0000DD; font-weight: bold">1</span>];
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">2</span>];
+          u <span style="color: #333333">+=</span> padded_width;
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">0</span>];
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">1</span>];
+          n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">2</span>];
+          new[y <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">3</span> <span style="color: #333333">||</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">&amp;&amp;</span> alive));
+        }
+      }
+      <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>tmp <span style="color: #333333">=</span> universe;
+      universe <span style="color: #333333">=</span> new;
+      new <span style="color: #333333">=</span> tmp;
+    }
+  }
+
+  <span style="color: #888888">//Unpack uint8_t into output array of unsigned.</span>
+  <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>out <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">unsigned</span><span style="color: #333333">*</span>)malloc(<span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">unsigned</span>) <span style="color: #333333">*</span> height <span style="color: #333333">*</span> width);
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> Y_IN_GHOST; y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST; x <span style="color: #333333">&lt;</span> width <span style="color: #333333">+</span> X_IN_GHOST; x<span style="color: #333333">++</span>) {
+      out[(y <span style="color: #333333">-</span> Y_IN_GHOST) <span style="color: #333333">*</span> width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> X_IN_GHOST] <span style="color: #333333">=</span> universe[(y <span style="color: #333333">*</span> padded_width) <span style="color: #333333">+</span> x];
+    }
+  }
+
+  aligned_free(new);
+  aligned_free(universe);
+  <span style="color: #008800; font-weight: bold">return</span> out;
+}
+</pre></div>
+
+    <p>This code achieves our first significant speedup of x over the reference version.</p>
+
   </body>
 </html>
