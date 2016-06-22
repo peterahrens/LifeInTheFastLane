@@ -2,9 +2,9 @@ CC = gcc
 CFLAGS = -std=c99 -march=native -O3
 OMPFLAGS = -fopenmp
 
-all: simple padded sse2 avx2 omp
+all: simple padded blocked sse2 avx2 omp
 clean:
-	rm simple padded sse2 avx2 omp *.o
+	rm simple padded blocked sse2 avx2 omp *.o
 
 reference.o: reference.c
 	${CC} ${CFLAGS} -c reference.c
@@ -14,6 +14,9 @@ simple.o: simple.c
 
 padded.o: padded.c
 	${CC} ${CFLAGS} -c padded.c
+
+blocked.o: blocked.c
+	${CC} ${CFLAGS} -c blocked.c
 
 sse2.o: sse2.c
 	${CC} ${CFLAGS} -c sse2.c
@@ -29,6 +32,9 @@ simple: bench.c simple.o reference.o
 
 padded: bench.c padded.o reference.o
 	${CC} ${CFLAGS} bench.c reference.o padded.o -o padded
+
+blocked: bench.c blocked.o reference.o
+	${CC} ${CFLAGS} bench.c reference.o blocked.o -o blocked
 
 sse2: bench.c sse2.o reference.o
 	${CC} ${CFLAGS} bench.c reference.o sse2.o -o sse2
