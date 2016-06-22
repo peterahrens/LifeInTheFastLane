@@ -97,13 +97,13 @@ int main (int argc, char **argv) {
 
   //Default values.
   if (width <= 0) {
-    width = 2048;
+    width = 4096;
   }
   if (height <= 0) {
-    height = 2048;
+    height = 4096;
   }
   if (iters <= 0) {
-    iters = 512;
+    iters = 256;
   }
   if (check <= 0) {
     check = 0;
