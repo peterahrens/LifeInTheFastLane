@@ -513,13 +513,37 @@
     }
 </pre></div>
 
-    <p>Now we are getting the speedups we deserve! This gets a speedup of x over the reference version on the 4096x4096 grid for 256 iterations.</p>
+    <p>Now we are getting the speedups we deserve! This gets a speedup of x over the reference version on the 4096x4096 grid for 256 iterations, and we are only using 10 of the available 40 processors on this cpu!</p>
 
-    Reference time: 65.4961
+      Reference time: 65.4961
          Simple time: 63.5957
          Padded time: 11.4486
-         SSE time: 0.960923
-         AVX time: 0.80532
-         OMP time: 0.072639
+            SSE time: 0.960923
+            AVX time: 0.80532
+            OMP time: 0.11225
+
+Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                40
+On-line CPU(s) list:   0-39
+Thread(s) per core:    2
+Core(s) per socket:    10
+Socket(s):             2
+NUMA node(s):          2
+Vendor ID:             GenuineIntel
+CPU family:            6
+Model:                 63
+Model name:            Intel(R) Xeon(R) CPU E5-2660 v3 @ 2.60GHz
+Stepping:              2
+CPU MHz:               2600.000
+BogoMIPS:              5209.96
+Virtualization:        VT-x
+L1d cache:             32K
+L1i cache:             32K
+L2 cache:              256K
+L3 cache:              25600K
+NUMA node0 CPU(s):     0-9,20-29
+NUMA node1 CPU(s):     10-19,30-39
   </body>
 </html>
