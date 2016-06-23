@@ -33,6 +33,7 @@ unsigned *life (const unsigned height,
   const unsigned padded_width_words = padded_width/WORD;
   uint8_t *universe = (uint8_t*)aligned_malloc(padded_height * padded_width);
   uint8_t *new = (uint8_t*)aligned_malloc(padded_height * padded_width);
+  //Moving these to the top makes the code faster. OpenMP Mysteries!
   const __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
                                        1, 1, 1, 1, 1, 1, 1, 1,
                                        1, 1, 1, 1, 1, 1, 1, 1,
@@ -40,7 +41,6 @@ unsigned *life (const unsigned height,
   const __m256i twos = _mm256_slli_epi32(ones, 1);
   const __m256i threes = _mm256_or_si256(ones, twos);
 
-  //pack into padded working array
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {
     for (unsigned x = X_IN_GHOST; x < width + X_IN_GHOST; x++) {
       universe[(y * padded_width) + x] = initial[(y - Y_IN_GHOST) * width + x - X_IN_GHOST];
@@ -49,7 +49,6 @@ unsigned *life (const unsigned height,
 
   for (unsigned i = 0; i < iters; i+= IN_GHOST) {
 
-    //copy the ghost cells once every IN_GHOST iterations
     __m256i *universe_words = (__m256i*)universe;
     for (unsigned y = 0; y < padded_height; y++) {
       if (y < Y_IN_GHOST) {
@@ -92,11 +91,14 @@ unsigned *life (const unsigned height,
 
     #pragma omp parallel
     {
+      //To avoid race conditions, each thread keeps their own copy of the
+      //universe and new pointers
       uint8_t *my_universe = universe;
       uint8_t *my_new = new;
 
-      //evolve IN_GHOST times
       for (unsigned j = 0; j < IN_GHOST & j + i < iters; j++) {
+        //We distribute the loop over y, not x, because we want to avoid writing
+        //to the same cache lines
         #pragma omp for
         for (unsigned y = (Y_IN_GHOST - Y_OUT_GHOST); y < height + Y_IN_GHOST + Y_OUT_GHOST; y++) {
           for (unsigned x = (X_IN_GHOST - X_OUT_GHOST); x + WORD <= width + X_IN_GHOST + X_OUT_GHOST; x += WORD) {
@@ -126,6 +128,10 @@ unsigned *life (const unsigned height,
       }
       #pragma omp single
       {
+        //Again to avoid race conditions, a single thread (it doesn't matter
+        //since all the threads have the same copies of everything) writes their
+        //copies of the universe and new pointers to the shared copies for the
+        //next time
         universe = my_universe;
         new = my_new;
       }

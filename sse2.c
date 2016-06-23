@@ -33,7 +33,6 @@ unsigned *life (const unsigned height,
   uint8_t *universe = (uint8_t*)aligned_malloc(padded_height * padded_width);
   uint8_t *new = (uint8_t*)aligned_malloc(padded_height * padded_width);
 
-  //pack into padded working array
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {
     for (unsigned x = X_IN_GHOST; x < width + X_IN_GHOST; x++) {
       universe[(y * padded_width) + x] = initial[(y - Y_IN_GHOST) * width + x - X_IN_GHOST];
@@ -42,7 +41,8 @@ unsigned *life (const unsigned height,
 
   for (unsigned i = 0; i < iters; i+= IN_GHOST) {
 
-    //copy the ghost cells once every IN_GHOST iterations
+    //Because we assume the width is a multiple of the size of a SSE register,
+    //we can use aligned loads and stores.
     __m128i *universe_words = (__m128i*)universe;
     for (unsigned y = 0; y < padded_height; y++) {
       if (y < Y_IN_GHOST) {
@@ -83,30 +83,38 @@ unsigned *life (const unsigned height,
       }
     }
 
-    //evolve IN_GHOST times
     for (unsigned j = 0; j < IN_GHOST & j + i < iters; j++) {
+      //Set up a vector of ones
       const __m128i ones = _mm_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
                                         1, 1, 1, 1, 1, 1, 1, 1);
+      //Set up a vector of twos
       const __m128i twos = _mm_slli_epi32(ones, 1);
+      //Set up a vector of threes
       const __m128i threes = _mm_or_si128(ones, twos);
       for (unsigned y = (Y_IN_GHOST - Y_OUT_GHOST); y < height + Y_IN_GHOST + Y_OUT_GHOST; y++) {
         for (unsigned x = (X_IN_GHOST - X_OUT_GHOST); x + WORD <= width + X_IN_GHOST + X_OUT_GHOST; x += WORD) {
           __m128i n;
           __m128i alive;
           uint8_t *u = universe + (y - 1) * padded_width + x - 1;
+          //This is an unaligned load
           n = _mm_lddqu_si128((__m128i*)u);
           n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
           n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
           u += padded_width;
           n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
+          //This is an aligned load
           alive = _mm_load_si128((__m128i*)(u + 1));
           n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
           u += padded_width;
           n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)u), n);
           n = _mm_add_epi8(_mm_load_si128((__m128i*)(u + 1)), n);
           n = _mm_add_epi8(_mm_lddqu_si128((__m128i*)(u + 2)), n);
+          //The operation we are performing here is the same, but it looks
+          //very different when written in SIMD instructions
           _mm_store_si128((__m128i*)(new + y * padded_width + x),
             _mm_or_si128(
+            //We need to and with the ones vector here because the result of
+            //comparison is either 0xFF or 0, and we need 1 or 0.
             _mm_and_si128(ones, _mm_cmpeq_epi8(n, threes)),
             _mm_and_si128(alive, _mm_cmpeq_epi8(n, twos))));
         }
@@ -116,7 +124,6 @@ unsigned *life (const unsigned height,
       new = tmp;
     }
   }
-  //unpack into output array
   unsigned *out = (unsigned*)malloc(sizeof(unsigned) * height * width);
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {
     for (unsigned x = X_IN_GHOST; x < width + X_IN_GHOST; x++) {

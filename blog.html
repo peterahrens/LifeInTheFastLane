@@ -322,7 +322,198 @@
 }
 </pre></div>
 
-    <p>This code achieves our first significant speedup of x over the reference version.</p>
+    <p>On a 4096x4096 grid for 256 iterations, this code achieves our first significant speedup of x over the reference version!</p>
+
+    <h2>blocked.c</h2>
+    <p>Our code tends to progress linearly across each row, accessing only the rows above and below it. Life needs to access each element nine times (eight times while counting among neighbors, and once to calculate the cell itself). As computation proceeds row by row, these accesses occur in groups of three (once group for each row), and if three rows of the matrix can fit in L1 cache, then the data is only loaded once from cache per iteration. However, if our computation accessed the data many more times per iteration, it might benefit from a technique called blocking. </p>
+    <p>Blocking is the practice of grouping the memory accesses together to keep the data in the highest level of the memory hierarchy possible. Register blocking is the reuse of data while it is still in the registers. Register blocking occurs in the inner loop of your code when you reuse values you have loaded from memory instead of loading them multiple times. Cache blocking is the reuse of data while it resides in cache. Cache blocking can be achieved by restructuring the ordering of loops so that nearby values are accessed soon after each other. Typically, you want a cache block to take up a sizeable portion of your L1 cache. </p>
+    <p>Although it doesn't help much in our case (the loop logic overhead exceeds memory benefits), we show an example of how to restructure the padded inner loop for cache blocking:</p>
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #557799">#define          X_BLOCK WORD * 256</span>
+<span style="color: #557799">#define          Y_BLOCK 256</span>
+</pre></div>
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%">    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> j <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; j <span style="color: #333333">&lt;</span> IN_GHOST <span style="color: #333333">&amp;&amp;</span> i <span style="color: #333333">+</span> j <span style="color: #333333">&lt;</span> iters; j<span style="color: #333333">++</span>) {
+      <span style="color: #888888">//Now the outer loops progress block by block.</span>
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> (Y_IN_GHOST <span style="color: #333333">-</span> OUT_GHOST); y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> OUT_GHOST; y <span style="color: #333333">+=</span> Y_BLOCK) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> (X_IN_GHOST <span style="color: #333333">-</span> OUT_GHOST); x <span style="color: #333333">&lt;</span> width <span style="color: #333333">+</span> X_IN_GHOST <span style="color: #333333">+</span> OUT_GHOST; x <span style="color: #333333">+=</span> X_BLOCK) {
+          <span style="color: #888888">//The inner loops progress one by one.</span>
+          <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> yy <span style="color: #333333">=</span> y; yy <span style="color: #333333">&lt;</span> y <span style="color: #333333">+</span> Y_BLOCK <span style="color: #333333">&amp;&amp;</span> yy <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> OUT_GHOST; yy<span style="color: #333333">++</span>) {
+            <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> xx <span style="color: #333333">=</span> x; xx <span style="color: #333333">&lt;</span> x <span style="color: #333333">+</span> X_BLOCK <span style="color: #333333">&amp;&amp;</span> xx <span style="color: #333333">&lt;</span> width <span style="color: #333333">+</span> X_IN_GHOST <span style="color: #333333">+</span> OUT_GHOST; xx<span style="color: #333333">++</span>) {
+              <span style="color: #333399; font-weight: bold">unsigned</span> n <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>;
+              <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>u <span style="color: #333333">=</span> universe <span style="color: #333333">+</span> (yy <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> xx <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>;
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">0</span>];
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">1</span>];
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">2</span>];
+              u <span style="color: #333333">+=</span> padded_width;
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">0</span>];
+              <span style="color: #333399; font-weight: bold">unsigned</span> alive <span style="color: #333333">=</span> u[<span style="color: #0000DD; font-weight: bold">1</span>];
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">2</span>];
+              u <span style="color: #333333">+=</span> padded_width;
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">0</span>];
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">1</span>];
+              n <span style="color: #333333">+=</span> u[<span style="color: #0000DD; font-weight: bold">2</span>];
+              new[yy <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> xx] <span style="color: #333333">=</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">3</span> <span style="color: #333333">||</span> (n <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">&amp;&amp;</span> alive));
+            }
+          }
+        }
+      }
+      <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>tmp <span style="color: #333333">=</span> universe;
+      universe <span style="color: #333333">=</span> new;
+      new <span style="color: #333333">=</span> tmp;
+    }
+</pre></div>
+
+    <h2>sse2.c</h2>
+    <p>Now, we will cram more operations into the inner loop using vectorization. This is our first form of explicit parallelism, at the instruction level. Intel's <a href="https://en.wikipedia.org/wiki/Streaming_SIMD_Extensions">SSE</a> vector intrinsics are 128 bits wide, so we can cram 16 <code>uint8_t</code> types into a single vector register, and operate on them all at once. To keep the code nice, we require that the width of the input is a multiple of 16. Specifically, we are using SSE2. A good resource for Intel vector intrinsics is the <a href="https://software.intel.com/sites/landingpage/IntrinsicsGuide/#">Intel Intrinsics Guide</a>. The best way for me to show you what the inner loop looks like at this point would be to write it out:</p>
+
+    <!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #557799">#define             WORD (128/8)</span>
+      </pre></div>
+
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%">  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i<span style="color: #333333">+=</span> IN_GHOST) {
+
+    <span style="color: #888888">//Because we assume the width is a multiple of the size of a SSE register,</span>
+    <span style="color: #888888">//we can use aligned loads and stores.</span>
+    <span style="color: #008800; font-weight: bold">__m128i</span> <span style="color: #333333">*</span>universe_words <span style="color: #333333">=</span> (<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)universe;
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> padded_height; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">if</span> (y <span style="color: #333333">&lt;</span> Y_IN_GHOST) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> width_words));
+        }
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST_WORDS; x <span style="color: #333333">&lt;</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x));
+        }
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS ; x <span style="color: #333333">&lt;</span> padded_width_words; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">-</span> width_words));
+        }
+      } <span style="color: #008800; font-weight: bold">else</span> <span style="color: #008800; font-weight: bold">if</span> (y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> width_words));
+        }
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS ; x <span style="color: #333333">&lt;</span> padded_width_words; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">-</span> width_words));
+        }
+      } <span style="color: #008800; font-weight: bold">else</span> {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> width_words));
+        }
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST_WORDS; x <span style="color: #333333">&lt;</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x));
+        }
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS ; x <span style="color: #333333">&lt;</span> padded_width_words; x<span style="color: #333333">++</span>) {
+          _mm_store_si128(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x,
+            _mm_load_si128(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> height) <span style="color: #333333">*</span> padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">-</span> width_words));
+        }
+      }
+    }
+
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> j <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; j <span style="color: #333333">&lt;</span> IN_GHOST <span style="color: #333333">&amp;</span> j <span style="color: #333333">+</span> i <span style="color: #333333">&lt;</span> iters; j<span style="color: #333333">++</span>) {
+      <span style="color: #888888">//Set up a vector of ones</span>
+      <span style="color: #008800; font-weight: bold">const</span> <span style="color: #008800; font-weight: bold">__m128i</span> ones <span style="color: #333333">=</span> _mm_set_epi8(<span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>,
+                                        <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>);
+      <span style="color: #888888">//Set up a vector of twos</span>
+      <span style="color: #008800; font-weight: bold">const</span> <span style="color: #008800; font-weight: bold">__m128i</span> twos <span style="color: #333333">=</span> _mm_slli_epi32(ones, <span style="color: #0000DD; font-weight: bold">1</span>);
+      <span style="color: #888888">//Set up a vector of threes</span>
+      <span style="color: #008800; font-weight: bold">const</span> <span style="color: #008800; font-weight: bold">__m128i</span> threes <span style="color: #333333">=</span> _mm_or_si128(ones, twos);
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> (Y_IN_GHOST <span style="color: #333333">-</span> Y_OUT_GHOST); y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> Y_OUT_GHOST; y<span style="color: #333333">++</span>) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> (X_IN_GHOST <span style="color: #333333">-</span> X_OUT_GHOST); x <span style="color: #333333">+</span> WORD <span style="color: #333333">&lt;=</span> width <span style="color: #333333">+</span> X_IN_GHOST <span style="color: #333333">+</span> X_OUT_GHOST; x <span style="color: #333333">+=</span> WORD) {
+          <span style="color: #008800; font-weight: bold">__m128i</span> n;
+          <span style="color: #008800; font-weight: bold">__m128i</span> alive;
+          <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>u <span style="color: #333333">=</span> universe <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>;
+          <span style="color: #888888">//This is an unaligned load</span>
+          n <span style="color: #333333">=</span> _mm_lddqu_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)u);
+          n <span style="color: #333333">=</span> _mm_add_epi8(_mm_load_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)), n);
+          n <span style="color: #333333">=</span> _mm_add_epi8(_mm_lddqu_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
+          u <span style="color: #333333">+=</span> padded_width;
+          n <span style="color: #333333">=</span> _mm_add_epi8(_mm_lddqu_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)u), n);
+          <span style="color: #888888">//This is an aligned load</span>
+          alive <span style="color: #333333">=</span> _mm_load_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>));
+          n <span style="color: #333333">=</span> _mm_add_epi8(_mm_lddqu_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
+          u <span style="color: #333333">+=</span> padded_width;
+          n <span style="color: #333333">=</span> _mm_add_epi8(_mm_lddqu_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)u), n);
+          n <span style="color: #333333">=</span> _mm_add_epi8(_mm_load_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)), n);
+          n <span style="color: #333333">=</span> _mm_add_epi8(_mm_lddqu_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
+          <span style="color: #888888">//The operation we are performing here is the same, but it looks</span>
+          <span style="color: #888888">//very different when written in SIMD instructions</span>
+          _mm_store_si128((<span style="color: #008800; font-weight: bold">__m128i</span><span style="color: #333333">*</span>)(new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x),
+            _mm_or_si128(
+            <span style="color: #888888">//We need to and with the ones vector here because the result of</span>
+            <span style="color: #888888">//comparison is either 0xFF or 0, and we need 1 or 0.</span>
+            _mm_and_si128(ones, _mm_cmpeq_epi8(n, threes)),
+            _mm_and_si128(alive, _mm_cmpeq_epi8(n, twos))));
+        }
+      }
+      <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>tmp <span style="color: #333333">=</span> universe;
+      universe <span style="color: #333333">=</span> new;
+      new <span style="color: #333333">=</span> tmp;
+    }
+  }
+</pre></div>
+    <p>This code achieves a speedup of x over the reference on the 4096x4096 grid for 256 iterations. Not bad.</p>
+
+    <h2>avx2.c</h2>
+    <p><a href="https://en.wikipedia.org/wiki/Advanced_Vector_Extensions">AVX</a> instructions are like double-wide SSE instructions. They can hold 256 bits (meaning 32 <code>uint8_t</code>), so we require that the width of the input is a multiple of 32. This code achieves a speedup of x over the reference on the 4096x4096 grid for 256 iterations, but because it is so similar to the SSE version we do not include it.</p>
+    <h2>omp.c</h2>
+    <p>We have a pretty decent speedup over the reference on a single thread, so why don't we move to multiple threads? <a href="https://en.wikipedia.org/wiki/OpenMP">OpenMP</a> is a library that makes it easy to distribute loop iterations among processes. Here's what it looks like: </p>
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%">    <span style="color: #FF0000; background-color: #FFAAAA">#</span>pragma omp parallel
+    {
+      <span style="color: #888888">//To avoid race conditions, each thread keeps their own copy of the</span>
+      <span style="color: #888888">//universe and new pointers</span>
+      <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>my_universe <span style="color: #333333">=</span> universe;
+      <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>my_new <span style="color: #333333">=</span> new;
+
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> j <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; j <span style="color: #333333">&lt;</span> IN_GHOST <span style="color: #333333">&amp;</span> j <span style="color: #333333">+</span> i <span style="color: #333333">&lt;</span> iters; j<span style="color: #333333">++</span>) {
+        <span style="color: #888888">//We distribute the loop over y, not x, because we want to avoid writing</span>
+        <span style="color: #888888">//to the same cache lines</span>
+        <span style="color: #FF0000; background-color: #FFAAAA">#</span>pragma omp <span style="color: #008800; font-weight: bold">for</span>
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> (Y_IN_GHOST <span style="color: #333333">-</span> Y_OUT_GHOST); y <span style="color: #333333">&lt;</span> height <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> Y_OUT_GHOST; y<span style="color: #333333">++</span>) {
+          <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> (X_IN_GHOST <span style="color: #333333">-</span> X_OUT_GHOST); x <span style="color: #333333">+</span> WORD <span style="color: #333333">&lt;=</span> width <span style="color: #333333">+</span> X_IN_GHOST <span style="color: #333333">+</span> X_OUT_GHOST; x <span style="color: #333333">+=</span> WORD) {
+            __m256i n;
+            __m256i alive;
+            <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>u <span style="color: #333333">=</span> my_universe <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>;
+            n <span style="color: #333333">=</span> _mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)u);
+            n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_load_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)), n);
+            n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
+            u <span style="color: #333333">+=</span> padded_width;
+            n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)u), n);
+            alive <span style="color: #333333">=</span> _mm256_load_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>));
+            n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
+            u <span style="color: #333333">+=</span> padded_width;
+            n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)u), n);
+            n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_load_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)), n);
+            n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
+            _mm256_store_si256((__m256i<span style="color: #333333">*</span>)(my_new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x),
+              _mm256_or_si256(
+              _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
+              _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
+          }
+        }
+        <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>tmp <span style="color: #333333">=</span> my_universe;
+        my_universe <span style="color: #333333">=</span> my_new;
+        my_new <span style="color: #333333">=</span> tmp;
+      }
+      <span style="color: #FF0000; background-color: #FFAAAA">#</span>pragma omp single
+      {
+        <span style="color: #888888">//Again to avoid race conditions, a single thread (it doesn&#39;t matter</span>
+        <span style="color: #888888">//since all the threads have the same copies of everything) writes their</span>
+        <span style="color: #888888">//copies of the universe and new pointers to the shared copies for the</span>
+        <span style="color: #888888">//next time</span>
+        universe <span style="color: #333333">=</span> my_universe;
+        new <span style="color: #333333">=</span> my_new;
+      }
+    }
+</pre></div>
+
+    <p>Now we are getting the speedups we deserve! This gets a speedup of x over the reference version on the 4096x4096 grid for 256 iterations.</p>
 
   </body>
 </html>
