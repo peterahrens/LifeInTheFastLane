@@ -138,7 +138,6 @@ unsigned *life (const unsigned height,
     }
   }
 
-  //unpack into output array
   unsigned *out = (unsigned*)malloc(sizeof(unsigned) * height * width);
   for (unsigned y = Y_IN_GHOST; y < height + Y_IN_GHOST; y++) {
     for (unsigned x = X_IN_GHOST; x < width + X_IN_GHOST; x++) {
