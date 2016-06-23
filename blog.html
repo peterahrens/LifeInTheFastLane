@@ -139,6 +139,7 @@
 
     <p>As you can see, writing good benchmark code is more complicated than slapping a timer on both sides of the loop.</p>
 
+
     <h2>simple.c</h2>
 
     Becaues optimization make code complicated, it is adviseable to simplify the code whenever possible. Before we start heavily optimizing the reference implementation, we can fix the glaring flaws in the reference implementation. Here is the new inner loop:
@@ -165,7 +166,39 @@
   }
 </pre></div>
 
-    <p>On a 4096x4096 grid for 256 iterations, these optimizations provide a x speedup over the reference implementation.</p>
+    <p>On a 4096x4096 grid for 256 iterations, these optimizations provide a x speedup over the reference implementation. Not much, be we are just getting started!</p>
+
+    <h2>Environment</h2>
+    <p> The compiler you use and the machine you run on are both big factors in how well your code performs. Expecting code optimized for one platform to run well on another is like expecting your friend's shoe to fit your foot. You must optimize <i>for</i> a particular platform. With that in mind, I will show the results from running the command <code>lscpu</code> on my machine.
+<pre><code>
+Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                40
+On-line CPU(s) list:   0-39
+Thread(s) per core:    2
+Core(s) per socket:    10
+Socket(s):             2
+NUMA node(s):          2
+Vendor ID:             GenuineIntel
+CPU family:            6
+Model:                 63
+Model name:            Intel(R) Xeon(R) CPU E5-2660 v3 @ 2.60GHz
+Stepping:              2
+CPU MHz:               2600.000
+BogoMIPS:              5209.96
+Virtualization:        VT-x
+L1d cache:             32K
+L1i cache:             32K
+L2 cache:              256K
+L3 cache:              25600K
+NUMA node0 CPU(s):     0-9,20-29
+NUMA node1 CPU(s):     10-19,30-39
+</code></pre>
+    <p>Since this chip has 20 CPUs across two <a href="https://en.wikipedia.org/wiki/Non-uniform_memory_access">NUMA</a> domains, so we might need to use a distributed-memory parallel language to take full advantage of the processing power of this chip.</p>
+    <p>It is important to quantify the best performance possible, so that we know how much more we can optimize. One possible measurement is our peak performance. To calculate the peak performance in our case, we start by noticing that there are 12 necessary integer operations in our inner loop (we count the comparisons to 2 and 3, and we don't cound the redundant add and subtract of the cell value itself). We assume that we can do one instruction per clock cycle. The processor runs at 2.6*10<sup>9</sup> clock cycles per second, and this machine supports AVX2, so we can operate on 32 8-bit sized integers at once, and there are 20 cores. Therefore, on average we can advance one cell one iteration in 6.01*10<sup>-13</sup> seconds. Therefore, the theoretical peak time to compute our 4096x4096 test problem over 256 iterations in 2.58*10<sup>-3</sup> seconds. Keep this number in mind!</p>
+
+    <p>Another important environmental factor in the performance of your code is what compiler (and compiler flags) you are using. For the record, I am using gcc version 4.9.3 with the compiler flags "-O3 -march=native". Really dig in to your compiler's documentation, because some flags can speed up your code and you don't have to do any work!</p>
 
     <h2>padding.c</h2>
 
@@ -513,7 +546,10 @@
     }
 </pre></div>
 
-    <p>Now we are getting the speedups we deserve! This gets a speedup of x over the reference version on the 4096x4096 grid for 256 iterations, and we are only using 10 of the available 40 processors on this cpu!</p>
+    <p>Now we are getting the speedups we deserve! This gets a speedup of x over the reference version on the 4096x4096 grid for 256 iterations, and we are only using 10 of the available 40 processors on this cpu! Keep in mind that we are currently only running at 2% of our theoretical peak processing rate!</p>
+
+    <h2></h2>
+
 
       Reference time: 65.4961
          Simple time: 63.5957
@@ -522,31 +558,7 @@
             AVX time: 0.80532
             OMP time: 0.11225
 
-Architecture:          x86_64
-CPU op-mode(s):        32-bit, 64-bit
-Byte Order:            Little Endian
-CPU(s):                40
-On-line CPU(s) list:   0-39
-Thread(s) per core:    2
-Core(s) per socket:    10
-Socket(s):             2
-NUMA node(s):          2
-Vendor ID:             GenuineIntel
-CPU family:            6
-Model:                 63
-Model name:            Intel(R) Xeon(R) CPU E5-2660 v3 @ 2.60GHz
-Stepping:              2
-CPU MHz:               2600.000
-BogoMIPS:              5209.96
-Virtualization:        VT-x
-L1d cache:             32K
-L1i cache:             32K
-L2 cache:              256K
-L3 cache:              25600K
-NUMA node0 CPU(s):     0-9,20-29
-NUMA node1 CPU(s):     10-19,30-39
 
-TODO compiler, compiler flags, machine, etc.
 
 baseboard_hp,cpu_intel,haswell,e5-2660_v3,2.60ghz,numa2,smt,10gbe
   </body>
