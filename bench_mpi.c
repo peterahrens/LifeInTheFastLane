@@ -90,10 +90,10 @@ int main (int argc, char **argv) {
   }
 
   if (width <= 0) {
-    width = 4096;
+    width = 8192;
   }
   if (height <= 0) {
-    height = 4096;
+    height = 8192;
   }
   if (iters <= 0) {
     iters = 256;

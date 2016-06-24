@@ -1,0 +1,33 @@
+--------------------------------------------------------------------------
+[[60415,1],0]: A high-performance Open MPI point-to-point messaging module
+was unable to find any relevant network interfaces:
+
+Module: OpenFabrics (openib)
+  Host: cn8
+
+Another transport will be used instead, although this may result in
+lower performance.
+--------------------------------------------------------------------------
+     Test time: 3.63112
+--------------------------------------------------------------------------
+[[59948,1],0]: A high-performance Open MPI point-to-point messaging module
+was unable to find any relevant network interfaces:
+
+Module: OpenFabrics (openib)
+  Host: cn8
+
+Another transport will be used instead, although this may result in
+lower performance.
+--------------------------------------------------------------------------
+     Test time: 0.707848
+--------------------------------------------------------------------------
+[[59994,1],9]: A high-performance Open MPI point-to-point messaging module
+was unable to find any relevant network interfaces:
+
+Module: OpenFabrics (openib)
+  Host: cn8
+
+Another transport will be used instead, although this may result in
+lower performance.
+--------------------------------------------------------------------------
+     Test time: 0.71802

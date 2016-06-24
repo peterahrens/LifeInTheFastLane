@@ -1,6 +1,6 @@
-CC = gcc-6
+CC = gcc
 MPICC = mpicc
-CFLAGS = -std=c99 -march=native -g
+CFLAGS = -std=c99 -march=native -O3 -lm
 OMPFLAGS = -fopenmp
 
 all: simple padded blocked sse2 avx2 omp mpi
