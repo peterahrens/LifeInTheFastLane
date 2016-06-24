@@ -5,7 +5,7 @@ OMPFLAGS = -fopenmp
 
 all: simple padded blocked sse2 avx2 omp mpi
 clean:
-	rm simple padded blocked sse2 avx2 omp *.o
+	rm -rf simple padded blocked sse2 avx2 omp mpi *.o *.dSYM
 
 reference.o: reference.c
 	${CC} ${CFLAGS} -c reference.c
