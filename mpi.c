@@ -14,6 +14,9 @@
 #define       Y_IN_GHOST IN_GHOST
 #define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)
 
+//Here are the tags we will use to distinguish where the data is coming from
+//and going to. Notice that the top left corner is sent to the bottom right
+//corner of the top left neighbor.
 #define     TOP_LEFT_SEND 0
 #define BOTTOM_RIGHT_RECV 0
 #define          TOP_SEND 1
@@ -55,7 +58,8 @@ unsigned *life (const unsigned height,
   //We will be arranging our processes in a grid. We are assuming that the
   //problem width is divisible by the square root of the number of processors
   //times the width of a word, and that the height is divisible by the
-  //square root of the number of processes
+  //square root of the number of processes, and the number of processes
+  //is a perfect square
   const unsigned side = (int)sqrt((double)size);
   const unsigned my_height = height/side;
   const unsigned my_width = width/side;
@@ -68,7 +72,7 @@ unsigned *life (const unsigned height,
   const unsigned my_padded_width_words = my_padded_width/WORD;
   uint8_t *universe = (uint8_t*)aligned_malloc(my_padded_height * my_padded_width);
   uint8_t *new = (uint8_t*)aligned_malloc(my_padded_height * my_padded_width);
-  //Moving these to the top makes the code faster. OpenMP Mysteries!
+
   const __m256i ones = _mm256_set_epi8(1, 1, 1, 1, 1, 1, 1, 1,
                                        1, 1, 1, 1, 1, 1, 1, 1,
                                        1, 1, 1, 1, 1, 1, 1, 1,
@@ -76,7 +80,9 @@ unsigned *life (const unsigned height,
   const __m256i twos = _mm256_slli_epi32(ones, 1);
   const __m256i threes = _mm256_or_si256(ones, twos);
 
-  //Send the data to all the processes
+  //We start by sending the data to all the processes. The data is first
+  //partitioned into a grid of rectangles (one for each processor).
+  //Here we first break up the initial data into rectangles.
   uint8_t *scatter_buffer_send;
   uint8_t *scatter_buffer_recv = (uint8_t*)aligned_malloc(my_height * my_width);
   if (rank == 0) {
@@ -100,6 +106,8 @@ unsigned *life (const unsigned height,
               MPI_UNSIGNED_CHAR,
               0,
               MPI_COMM_WORLD);
+  //Now that the data has been scattered, we copy our personal rectangle into
+  //our local universe.
   for (unsigned y = Y_IN_GHOST; y < Y_IN_GHOST + my_height; y++) {
     for (unsigned x = X_IN_GHOST; x < X_IN_GHOST + my_width; x++) {
 
@@ -107,6 +115,7 @@ unsigned *life (const unsigned height,
     }
   }
 
+  //There's a bunch of send buffers aren't there?
   __m256i     *ghost_buffer_top_left_send = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
   __m256i          *ghost_buffer_top_send = (__m256i*)aligned_malloc(  my_width * Y_IN_GHOST);
   __m256i    *ghost_buffer_top_right_send = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
@@ -137,7 +146,9 @@ unsigned *life (const unsigned height,
   for (unsigned i = 0; i < iters; i+= IN_GHOST) {
     __m256i *universe_words = (__m256i*)universe;
 
-    //Now we send ghost zones to all of our neighbors.
+    //Here are all of the sends to our neighbors in every cardinal direction.
+    //The sends are nonblocking, so that we can move right on to the next send
+    //without waiting for our neighbors to recieve.
     for (unsigned y = 0; y < Y_IN_GHOST; y++) {
       for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
         _mm256_store_si256(ghost_buffer_top_left_send + y * X_IN_GHOST_WORDS + x,
@@ -243,7 +254,8 @@ unsigned *life (const unsigned height,
               MPI_COMM_WORLD,
               &left_req);
 
-    //Now we recieve ghost zones from all of our neighbors.
+    //Now we recieve ghost zones from all of our neighbors. Since we need to
+    //process our recieved data immediately, the recieved data is blocking.
     MPI_Recv((void*)ghost_buffer_bottom_right_recv,
              X_IN_GHOST * Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
@@ -349,7 +361,7 @@ unsigned *life (const unsigned height,
       }
     }
 
-
+    //The inner loop is the same.
     #pragma omp parallel
     {
       uint8_t *my_universe = universe;
@@ -403,7 +415,9 @@ unsigned *life (const unsigned height,
   }
 
   unsigned *out = NULL;
-  //Recieve the data from all the processes
+  //This part is very similar to the Scatter. We now have all of the final
+  //configurations, and need to send them to the master process so that we
+  //can return a matrix.
   for (unsigned y = Y_IN_GHOST; y < Y_IN_GHOST + my_height; y++) {
     for (unsigned x = X_IN_GHOST; x < X_IN_GHOST + my_width; x++) {
       scatter_buffer_recv[(y - Y_IN_GHOST) * my_width + x - X_IN_GHOST] = universe[y * my_padded_width + x];
