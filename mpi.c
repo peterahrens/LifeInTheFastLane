@@ -14,6 +14,23 @@
 #define       Y_IN_GHOST IN_GHOST
 #define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)
 
+#define     TOP_LEFT_SEND 0
+#define BOTTOM_RIGHT_RECV 0
+#define          TOP_SEND 1
+#define       BOTTOM_RECV 1
+#define    TOP_RIGHT_SEND 2
+#define  BOTTOM_LEFT_RECV 2
+#define        RIGHT_SEND 3
+#define         LEFT_RECV 3
+#define BOTTOM_RIGHT_SEND 4
+#define     TOP_LEFT_RECV 4
+#define       BOTTOM_SEND 5
+#define          TOP_RECV 5
+#define  BOTTOM_LEFT_SEND 6
+#define    TOP_RIGHT_RECV 6
+#define         LEFT_SEND 7
+#define        RIGHT_RECV 7
+
 void *aligned_malloc(int size) {
     char *mem = malloc(sizeof(void*) + size + WORD - 1);
     void **ptr = (void**)(((uintptr_t)(mem + sizeof(void*) + WORD - 1)) & ~((uintptr_t)(WORD - 1)));
@@ -63,20 +80,25 @@ unsigned *life (const unsigned height,
   uint8_t *scatter_buffer_send;
   uint8_t *scatter_buffer_recv = (uint8_t*)aligned_malloc(my_height * my_width);
   if (rank == 0) {
-    scatter_buf = (uint8_t*)aligned_malloc(height * width);
+    scatter_buffer_send = (uint8_t*)aligned_malloc(height * width);
     for (unsigned their_y = 0; their_y < side; their_y++) {
       for (unsigned their_x = 0; their_x < side; their_x++) {
         for (unsigned y = 0; y < my_height; y++) {
           for (unsigned x = 0; x < my_width; x++) {
-            scatter_buffer_send[(their_y * side + their_width) * (my_width + my_height) + y * my_width + x] =
+            scatter_buffer_send[(their_y * side + their_x) * (my_width + my_height) + y * my_width + x] =
               initial[(their_y * my_height + y) * width + their_x * my_width + x];
           }
         }
       }
     }
   }
-  MPI_Scatter((const void*)scatter_buffer_send, my_height * my_width, MPI_UNSIGNED_CHAR,
-              (const void*)scatter_buffer_recv, my_height * my_width, 0,
+  MPI_Scatter((const void*)scatter_buffer_send,
+              my_height * my_width,
+              MPI_UNSIGNED_CHAR,
+              (void*)scatter_buffer_recv,
+              my_height * my_width,
+              MPI_UNSIGNED_CHAR,
+              0,
               MPI_COMM_WORLD);
   for (unsigned y = Y_IN_GHOST; y < Y_IN_GHOST + my_height; y++) {
     for (unsigned x = X_IN_GHOST; x < X_IN_GHOST + my_width; x++) {
@@ -85,23 +107,23 @@ unsigned *life (const unsigned height,
     }
   }
 
-  unsigned     *ghost_buffer_top_left_send = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned          *ghost_buffer_top_send = aligned_malloc(  my_width * Y_IN_GHOST);
-  unsigned    *ghost_buffer_top_right_send = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned        *ghost_buffer_right_send = aligned_malloc(X_IN_GHOST * my_height );
-  unsigned *ghost_buffer_bottom_right_send = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned       *ghost_buffer_bottom_send = aligned_malloc(  my_width * Y_IN_GHOST);
-  unsigned  *ghost_buffer_bottom_left_send = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned         *ghost_buffer_left_send = aligned_malloc(X_IN_GHOST * my_height );
+  __m256i     *ghost_buffer_top_left_send = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i          *ghost_buffer_top_send = (__m256i*)aligned_malloc(  my_width * Y_IN_GHOST);
+  __m256i    *ghost_buffer_top_right_send = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i        *ghost_buffer_right_send = (__m256i*)aligned_malloc(X_IN_GHOST * my_height );
+  __m256i *ghost_buffer_bottom_right_send = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i       *ghost_buffer_bottom_send = (__m256i*)aligned_malloc(  my_width * Y_IN_GHOST);
+  __m256i  *ghost_buffer_bottom_left_send = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i         *ghost_buffer_left_send = (__m256i*)aligned_malloc(X_IN_GHOST * my_height );
 
-  unsigned *ghost_buffer_bottom_right_recv = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned       *ghost_buffer_bottom_recv = aligned_malloc(  my_width * Y_IN_GHOST);
-  unsigned  *ghost_buffer_bottom_left_recv = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned         *ghost_buffer_left_recv = aligned_malloc(X_IN_GHOST * my_height );
-  unsigned     *ghost_buffer_top_left_recv = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned          *ghost_buffer_top_recv = aligned_malloc(  my_width * Y_IN_GHOST);
-  unsigned    *ghost_buffer_top_right_recv = aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
-  unsigned        *ghost_buffer_right_recv = aligned_malloc(X_IN_GHOST * my_height );
+  __m256i *ghost_buffer_bottom_right_recv = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i       *ghost_buffer_bottom_recv = (__m256i*)aligned_malloc(  my_width * Y_IN_GHOST);
+  __m256i  *ghost_buffer_bottom_left_recv = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i         *ghost_buffer_left_recv = (__m256i*)aligned_malloc(X_IN_GHOST * my_height );
+  __m256i     *ghost_buffer_top_left_recv = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i          *ghost_buffer_top_recv = (__m256i*)aligned_malloc(  my_width * Y_IN_GHOST);
+  __m256i    *ghost_buffer_top_right_recv = (__m256i*)aligned_malloc(X_IN_GHOST * Y_IN_GHOST);
+  __m256i        *ghost_buffer_right_recv = (__m256i*)aligned_malloc(X_IN_GHOST * my_height );
 
   MPI_Request top_left_req;
   MPI_Request top_req;
@@ -117,95 +139,142 @@ unsigned *life (const unsigned height,
 
     //Now we send ghost zones to all of our neighbors.
     //Top Left
-    for (unsigned y = 0; y < Y_IN_GHOST; y++) {
-      for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-        _mm256_store_si256(ghost_buffer_top_left_send + y * X_IN_GHOST_WORDS + x,
-          _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x + my_width_words));
+    printf("Top left\n");
+    for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
+      for (unsigned x = X_IN_GHOST_WORDS + my_width_words; x < my_padded_width; x++) {
+        _mm256_store_si256(ghost_buffer_top_left_send + (y - Y_IN_GHOST - my_height) * X_IN_GHOST_WORDS + x - X_IN_GHOST_WORDS - my_width_words,
+          _mm256_load_si256(universe_words + (y - my_height) * my_padded_width_words + x - my_width_words));
       }
     }
-    MPI_ISend(ghost_buffer_top_left_send, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-              ((my_y + side - 1) % side) * side + ((my_x + side - 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Isend(ghost_buffer_top_left_send,
+              X_IN_GHOST * Y_IN_GHOST,
+              MPI_UNSIGNED_CHAR,
+              ((my_y + side - 1) % side) * side + ((my_x + side - 1) % side),
+              0,
+              MPI_COMM_WORLD,
               &top_left_req);
 
     //Top
-    for (unsigned y = 0; y < Y_IN_GHOST; y++) {
-      for (unsigned x = X_IN_GHOST_WORDS; x < X_IN_GHOST_WORDS + my_width; x++) {
-        _mm256_store_si256(ghost_buffer_top_send + y * my_width + x - X_IN_GHOST_WORDS,
-          _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x + my_width_words));
+    printf("Top\n");
+    for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
+      for (unsigned x = X_IN_GHOST_WORDS; x < X_IN_GHOST_WORDS + my_width_words; x++) {
+        _mm256_store_si256(ghost_buffer_top_send + (y - Y_IN_GHOST - my_height) * my_width_words + x - X_IN_GHOST_WORDS,
+          _mm256_load_si256(universe_words + (y - my_height) * my_padded_width_words + x));
       }
     }
-    MPI_ISend(ghost_buffer_top_send, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-              ((my_y + side - 1) % side) * side + my_x, 0, MPI_COMM_WORLD,
+    MPI_Isend(ghost_buffer_top_send,
+              my_width * Y_IN_GHOST,
+              MPI_UNSIGNED_CHAR,
+              ((my_y + side - 1) % side) * side + my_x,
+              0,
+              MPI_COMM_WORLD,
               &top_req);
 
     //Top Right
-    for (unsigned y = 0; y < Y_IN_GHOST; y++) {
-      for (unsigned x = X_IN_GHOST_WORDS + my_width; x < my_padded_width; x++) {
-        _mm256_store_si256(ghost_buffer_top_right_send + y * X_IN_GHOST_WORDS + x - X_IN_GHOST_WORDS - my_width,
-          _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x + my_width_words));
+    printf("Top Right\n");
+    for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
+      for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
+        _mm256_store_si256(ghost_buffer_top_right_send + (y - Y_IN_GHOST - my_height) * X_IN_GHOST_WORDS + x,
+          _mm256_load_si256(universe_words + (y - my_height) * my_padded_width_words + x + my_width_words));
       }
     }
-    MPI_ISend(ghost_buffer_top_send, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-              ((my_y + side - 1) % side) * side + ((my_x + 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Isend(ghost_buffer_top_send,
+              X_IN_GHOST * Y_IN_GHOST,
+              MPI_UNSIGNED_CHAR,
+              ((my_y + side - 1) % side) * side + ((my_x + 1) % side),
+              0,
+              MPI_COMM_WORLD,
               &top_right_req);
 
     //Right
+    printf("Right\n");
     for (unsigned y = Y_IN_GHOST; y < Y_IN_GHOST + my_height; y++) {
-        for (unsigned x = X_IN_GHOST_WORDS + my_width; x < my_padded_width; x++) {
-          _mm256_store_si256(ghost_buffer_right_send + y * X_IN_GHOST_WORDS + x - X_IN_GHOST_WORDS - my_width,
+        for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
+          _mm256_store_si256(ghost_buffer_right_send + y * X_IN_GHOST_WORDS + x,
             _mm256_load_si256(universe_words + y * my_padded_width_words + x + my_width_words));
         }
-    MPI_ISend(ghost_buffer_right_send, X_IN_GHOST * my_height, MPI_UNSIGNED_CHAR, 
-              my_y * side + ((my_x + 1) % side), 0, MPI_COMM_WORLD,
+    }
+    MPI_Isend(ghost_buffer_right_send,
+              X_IN_GHOST * my_height,
+              MPI_UNSIGNED_CHAR,
+              my_y * side + ((my_x + 1) % side),
+              0,
+              MPI_COMM_WORLD,
               &right_req);
 
     //Bottom Right
-    for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
-      for (unsigned x = X_IN_GHOST_WORDS + my_width; x < my_padded_width; x++) {
-        _mm256_store_si256(ghost_buffer_bottom_right_send + (y - Y_IN_GHOST - my_height) * X_IN_GHOST_WORDS + x - X_IN_GHOST_WORDS - my_width,
+    printf("BottomRight\n");
+    for (unsigned y = 0; y < Y_IN_GHOST; y++) {
+      for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
+        _mm256_store_si256(ghost_buffer_bottom_right_send + y * X_IN_GHOST_WORDS + x,
           _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x + my_width_words));
       }
     }
-    MPI_ISend(ghost_buffer_bottom_send, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-              ((my_y + 1) % side) * side + ((my_x + 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Isend(ghost_buffer_bottom_right_send,
+              X_IN_GHOST * Y_IN_GHOST,
+              MPI_UNSIGNED_CHAR,
+              ((my_y + 1) % side) * side + ((my_x + 1) % side),
+              0,
+              MPI_COMM_WORLD,
               &bottom_right_req);
 
     //Bottom
-    for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
-      for (unsigned x = X_IN_GHOST_WORDS; x < X_IN_GHOST_WORDS + my_width; x++) {
-        _mm256_store_si256(ghost_buffer_bottom_send + (y - Y_IN_GHOST - my_height) * my_width + x - X_IN_GHOST_WORDS,
-          _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x + my_width_words));
+    printf("Bottom\n");
+    for (unsigned y = 0; y < Y_IN_GHOST; y++) {
+      for (unsigned x = X_IN_GHOST_WORDS; x < X_IN_GHOST_WORDS + my_width_words; x++) {
+        _mm256_store_si256(ghost_buffer_bottom_send + y * my_width_words + x - X_IN_GHOST_WORDS,
+          _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x));
       }
     }
-    MPI_ISend(ghost_buffer_bottom_send, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-              ((my_y + 1) % side) * side + my_x, 0, MPI_COMM_WORLD,
+    MPI_Isend(ghost_buffer_bottom_send,
+              my_width * Y_IN_GHOST,
+              MPI_UNSIGNED_CHAR,
+              ((my_y + 1) % side) * side + my_x,
+              0,
+              MPI_COMM_WORLD,
               &bottom_req);
 
     //Bottom Left
-    for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
-      for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-        _mm256_store_si256(ghost_buffer_bottom_left_send + (y - Y_IN_GHOST - my_height) * X_IN_GHOST_WORDS + x,
-          _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x + my_width_words));
+    printf("Bottom left\n");
+    for (unsigned y = 0; y < Y_IN_GHOST; y++) {
+      for (unsigned x = X_IN_GHOST_WORDS + my_width_words; x < my_padded_width; x++) {
+        _mm256_store_si256(ghost_buffer_bottom_left_send + y * X_IN_GHOST_WORDS + x - X_IN_GHOST_WORDS - my_width_words,
+          _mm256_load_si256(universe_words + (y + my_height) * my_padded_width_words + x - my_width_words));
       }
     }
-    MPI_ISend(ghost_buffer_bottom_left_send, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-              ((my_y + 1) % side) * side + ((my_x + side - 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Isend(ghost_buffer_bottom_left_send,
+              X_IN_GHOST * Y_IN_GHOST,
+              MPI_UNSIGNED_CHAR,
+              ((my_y + 1) % side) * side + ((my_x + side - 1) % side),
+              0,
+              MPI_COMM_WORLD,
               &bottom_left_req);
 
     //Left
+    printf("left\n");
     for (unsigned y = Y_IN_GHOST; y < Y_IN_GHOST + my_height; y++) {
-        for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
-          _mm256_store_si256(ghost_buffer_left_send + y * X_IN_GHOST_WORDS + x,
-            _mm256_load_si256(universe_words + y * my_padded_width_words + x + my_width_words));
+        for (unsigned x = X_IN_GHOST_WORDS + my_width_words; x < my_padded_width; x++) {
+          _mm256_store_si256(ghost_buffer_left_send + y * X_IN_GHOST_WORDS + x - X_IN_GHOST_WORDS - my_width_words,
+            _mm256_load_si256(universe_words + y * my_padded_width_words + x - my_width_words));
         }
-    MPI_ISend(ghost_buffer_left_send, X_IN_GHOST * my_height, MPI_UNSIGNED_CHAR, 
-              my_y * side + ((my_x + side - 1) % side), 0, MPI_COMM_WORLD,
+    }
+    MPI_Isend(ghost_buffer_left_send,
+              X_IN_GHOST * my_height,
+              MPI_UNSIGNED_CHAR,
+              my_y * side + ((my_x + side - 1) % side),
+              0,
+              MPI_COMM_WORLD,
               &left_req);
 
     //Now we recieve ghost zones from all of our neighbors.
     //Top Left
-    MPI_Recv(ghost_buffer_top_left_recv, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-             ((my_y + side - 1) % side) * side + ((my_x + side - 1) % side), 0, MPI_COMM_WORLD,
+    printf("top left\n");
+    MPI_Recv((void*)ghost_buffer_top_left_recv,
+             X_IN_GHOST * Y_IN_GHOST,
+             MPI_UNSIGNED_CHAR,
+             ((my_y + side - 1) % side) * side + ((my_x + side - 1) % side),
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = 0; y < Y_IN_GHOST; y++) {
       for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
@@ -215,19 +284,28 @@ unsigned *life (const unsigned height,
     }
 
     //Top
-    MPI_Recv(ghost_buffer_top_recv, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-             ((my_y + side - 1) % side) * side + my_x, 0, MPI_COMM_WORLD,
+    printf("top\n");
+    MPI_Recv((void*)ghost_buffer_top_recv,
+             my_width * Y_IN_GHOST,
+             MPI_UNSIGNED_CHAR,
+             ((my_y + side - 1) % side) * side + my_x,
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = 0; y < Y_IN_GHOST; y++) {
-      for (unsigned x = X_IN_GHOST_WORDS; x < X_IN_GHOST_WORDS + my_width; x++) {
+      for (unsigned x = X_IN_GHOST_WORDS; x < X_IN_GHOST_WORDS + my_width_words; x++) {
         _mm256_store_si256(universe_words + (y + my_height) * my_padded_width_words + x + my_width_words,
           _mm256_load_si256(ghost_buffer_top_recv + y * my_width + x - X_IN_GHOST_WORDS));
       }
     }
 
     //Top Right
-    MPI_Recv(ghost_buffer_top_recv, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-             ((my_y + side - 1) % side) * side + ((my_x + 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Recv((void*)ghost_buffer_top_recv,
+             X_IN_GHOST * Y_IN_GHOST,
+             MPI_UNSIGNED_CHAR,
+             ((my_y + side - 1) % side) * side + ((my_x + 1) % side),
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = 0; y < Y_IN_GHOST; y++) {
       for (unsigned x = X_IN_GHOST_WORDS + my_width; x < my_padded_width; x++) {
@@ -237,8 +315,12 @@ unsigned *life (const unsigned height,
     }
 
     //Right
-    MPI_Recv(ghost_buffer_right_recv, X_IN_GHOST * my_height, MPI_UNSIGNED_CHAR, 
-             my_y * side + ((my_x + 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Recv((void*)ghost_buffer_right_recv,
+             X_IN_GHOST * my_height,
+             MPI_UNSIGNED_CHAR,
+             my_y * side + ((my_x + 1) % side),
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = Y_IN_GHOST; y < Y_IN_GHOST + my_height; y++) {
         for (unsigned x = X_IN_GHOST_WORDS + my_width; x < my_padded_width; x++) {
@@ -248,8 +330,12 @@ unsigned *life (const unsigned height,
     }
 
     //Bottom Right
-    MPI_Recv(ghost_buffer_bottom_recv, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-             ((my_y + 1) % side) * side + ((my_x + 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Recv((void*)ghost_buffer_bottom_recv,
+             X_IN_GHOST * Y_IN_GHOST,
+             MPI_UNSIGNED_CHAR,
+             ((my_y + 1) % side) * side + ((my_x + 1) % side),
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
       for (unsigned x = X_IN_GHOST_WORDS + my_width; x < my_padded_width; x++) {
@@ -259,8 +345,12 @@ unsigned *life (const unsigned height,
     }
 
     //Bottom
-    MPI_Recv(ghost_buffer_bottom_recv, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-             ((my_y + 1) % side) * side + my_x, 0, MPI_COMM_WORLD,
+    MPI_Recv((void*)ghost_buffer_bottom_recv,
+             my_width * Y_IN_GHOST,
+             MPI_UNSIGNED_CHAR,
+             ((my_y + 1) % side) * side + my_x,
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
       for (unsigned x = X_IN_GHOST_WORDS; x < X_IN_GHOST_WORDS + my_width; x++) {
@@ -270,8 +360,12 @@ unsigned *life (const unsigned height,
     }
 
     //Bottom Left
-    MPI_Recv(ghost_buffer_bottom_left_recv, X_IN_GHOST * Y_IN_GHOST, MPI_UNSIGNED_CHAR, 
-             ((my_y + 1) % side) * side + ((my_x + side - 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Recv((void*)ghost_buffer_bottom_left_recv,
+             X_IN_GHOST * Y_IN_GHOST,
+             MPI_UNSIGNED_CHAR,
+             ((my_y + 1) % side) * side + ((my_x + side - 1) % side),
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = Y_IN_GHOST + my_height; y < my_padded_height; y++) {
       for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
@@ -281,8 +375,12 @@ unsigned *life (const unsigned height,
     }
 
     //Left
-    MPI_Recv(ghost_buffer_left_recv, X_IN_GHOST * my_height, MPI_UNSIGNED_CHAR, 
-             my_y * side + ((my_x + side - 1) % side), 0, MPI_COMM_WORLD,
+    MPI_Recv((void*)ghost_buffer_left_recv,
+             X_IN_GHOST * my_height,
+             MPI_UNSIGNED_CHAR,
+             my_y * side + ((my_x + side - 1) % side),
+             0,
+             MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
     for (unsigned y = Y_IN_GHOST; y < Y_IN_GHOST + my_height; y++) {
         for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
@@ -350,8 +448,13 @@ unsigned *life (const unsigned height,
       scatter_buffer_recv[(y - Y_IN_GHOST) * my_width + x - X_IN_GHOST] = universe[(y * my_padded_width) + x];
     }
   }
-  MPI_Gather((const void*)scatter_buffer_recv, my_height * my_width, MPI_UNSIGNED_CHAR,
-             (const void*)scatter_buffer_send, my_height * my_width, 0,
+  MPI_Gather((const void*)scatter_buffer_recv,
+             my_height * my_width,
+             MPI_UNSIGNED_CHAR,
+             (void*)scatter_buffer_send,
+             my_height * my_width,
+             MPI_UNSIGNED_CHAR,
+             0,
              MPI_COMM_WORLD);
   if (rank == 0) {
     out = (unsigned*)malloc(sizeof(unsigned) * my_height * my_width);
@@ -360,7 +463,7 @@ unsigned *life (const unsigned height,
         for (unsigned y = 0; y < my_height; y++) {
           for (unsigned x = 0; x < my_width; x++) {
             out[(their_y * my_height + y) * width + their_x * my_width + x] =
-            scatter_buffer_send[(their_y * side + their_width) * (my_width + my_height) + y * my_width + x];
+            scatter_buffer_send[(their_y * side + their_x) * (my_width + my_height) + y * my_width + x];
           }
         }
       }
