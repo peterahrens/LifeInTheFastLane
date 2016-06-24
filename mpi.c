@@ -6,7 +6,7 @@
 #include <mpi.h>
 
 #define             WORD (256/8)
-#define        OUT_GHOST 3
+#define        OUT_GHOST 7
 #define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)
 #define      Y_OUT_GHOST OUT_GHOST
 #define         IN_GHOST (OUT_GHOST + 1)
@@ -85,7 +85,7 @@ unsigned *life (const unsigned height,
       for (unsigned their_x = 0; their_x < side; their_x++) {
         for (unsigned y = 0; y < my_height; y++) {
           for (unsigned x = 0; x < my_width; x++) {
-            scatter_buffer_send[(their_y * side + their_x) * (my_width + my_height) + y * my_width + x] =
+            scatter_buffer_send[(their_y * side + their_x) * (my_width * my_height) + y * my_width + x] =
               initial[(their_y * my_height + y) * width + their_x * my_width + x];
           }
         }
@@ -418,13 +418,13 @@ unsigned *life (const unsigned height,
              0,
              MPI_COMM_WORLD);
   if (rank == 0) {
-    out = (unsigned*)malloc(sizeof(unsigned) * my_height * my_width);
+    out = (unsigned*)malloc(sizeof(unsigned) * height * width);
     for (unsigned their_y = 0; their_y < side; their_y++) {
       for (unsigned their_x = 0; their_x < side; their_x++) {
         for (unsigned y = 0; y < my_height; y++) {
           for (unsigned x = 0; x < my_width; x++) {
             out[(their_y * my_height + y) * width + their_x * my_width + x] =
-            scatter_buffer_send[(their_y * side + their_x) * (my_width + my_height) + y * my_width + x];
+            scatter_buffer_send[(their_y * side + their_x) * (my_width * my_height) + y * my_width + x];
           }
         }
       }
@@ -450,11 +450,8 @@ unsigned *life (const unsigned height,
   aligned_free(ghost_buffer_bottom_left_recv);
   aligned_free(ghost_buffer_left_recv);
   if (rank == 0) {
-    printf("scatter buffer %d\n", rank);
     aligned_free(scatter_buffer_send);
   }
-    printf("scatter buffer %d\n", rank);
   aligned_free(scatter_buffer_recv);
-    printf("scatter buffer %d\n", rank);
   return out;
 }
