@@ -547,6 +547,8 @@ NUMA node1 CPU(s):     10-19,30-39
 </pre></div>
 
     <p>Now we are getting the speedups we deserve! This gets a speedup of x over the reference version on the 4096x4096 grid for 256 iterations, and we are only using 10 of the available 40 processors on this cpu! Keep in mind that we are currently only running at 2% of our theoretical peak processing rate!</p>
+    <p>Our OpenMP code does not scale beyond the NUMA node, however. From the following graph, we see that our code gets no performance gain beyond 10 threads.</p>
+    <img src=omp_plot.png></img>
 
     <h2>mpi.c</h2>
 
