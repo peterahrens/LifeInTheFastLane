@@ -1,8 +1,9 @@
-CC = gcc
+CC = gcc-5
+MPICC = mpicc
 CFLAGS = -std=c99 -march=native -O3
 OMPFLAGS = -fopenmp
 
-all: simple padded blocked sse2 avx2 omp
+all: simple padded blocked sse2 avx2 omp mpi
 clean:
 	rm simple padded blocked sse2 avx2 omp *.o
 
@@ -27,6 +28,9 @@ avx2.o: avx2.c
 omp.o: omp.c
 	${CC} ${OMPFLAGS} ${CFLAGS} -c omp.c
 
+mpi.o: mpi.c
+	${MPICC} ${OMPFLAGS} ${CFLAGS} -c mpi.c
+
 simple: bench.c simple.o reference.o
 	${CC} ${CFLAGS} bench.c reference.o simple.o -o simple
 
@@ -44,3 +48,6 @@ avx2: bench.c avx2.o reference.o
 
 omp: bench.c reference.o omp.o
 	${CC} ${CFLAGS} ${OMPFLAGS} bench.c reference.o omp.o -o omp
+
+mpi: bench_mpi.c reference.o mpi.o
+	${MPICC} ${CFLAGS} ${OMPFLAGS} bench_mpi.c reference.o mpi.o -o mpi

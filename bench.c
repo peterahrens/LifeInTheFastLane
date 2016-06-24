@@ -83,10 +83,6 @@ int main (int argc, char **argv) {
   unsigned iters = 0;
   unsigned check = 0;
   unsigned trials;
-  int rank;
-
-  MPI_Init();
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   if (argc > 2) {
     width = atoi(argv[1]);
