@@ -148,7 +148,7 @@ unsigned *life (const unsigned height,
 
     //Here are all of the sends to our neighbors in every cardinal direction.
     //The sends are nonblocking, so that we can move right on to the next send
-    //without waiting for our neighbors to recieve.
+    //without waiting for our neighbors to receive.
     for (unsigned y = 0; y < Y_IN_GHOST; y++) {
       for (unsigned x = 0; x < X_IN_GHOST_WORDS; x++) {
         _mm256_store_si256(ghost_buffer_top_left_send + y * X_IN_GHOST_WORDS + x,
@@ -254,8 +254,8 @@ unsigned *life (const unsigned height,
               MPI_COMM_WORLD,
               &left_req);
 
-    //Now we recieve ghost zones from all of our neighbors. Since we need to
-    //process our recieved data immediately, the recieved data is blocking.
+    //Now we receive ghost zones from all of our neighbors. Since we need to
+    //process our received data immediately, the received data is blocking.
     MPI_Recv((void*)ghost_buffer_bottom_right_recv,
              X_IN_GHOST * Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
@@ -403,7 +403,7 @@ unsigned *life (const unsigned height,
     }
 
     //Before we start another iteration and start sending again, let's make sure
-    //that everyone has recieved our messages.
+    //that everyone has received our messages.
     MPI_Wait(&top_left_req, MPI_STATUS_IGNORE);
     MPI_Wait(&top_req, MPI_STATUS_IGNORE);
     MPI_Wait(&top_right_req, MPI_STATUS_IGNORE);

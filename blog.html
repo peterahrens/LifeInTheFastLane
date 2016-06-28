@@ -10,17 +10,17 @@
     <p>Conway's Game of Life has been an inspiration to computer scientists since it's creation in 1970. Life is a simulation of cells arranged in a two-dimensional grid. Each cell can be in one of two states, alive or dead. I will leave the <a href="https://en.wikipedia.org/wiki/Conway's_Game_of_Life">full explanation</a> of Life to Wikipedia, and only restate here the rules regarding the interactions between cells:</p>
 
     <ul>
-      <li>Any live cell with fewer than two live neighbours dies, as if caused by under-population.</li>
-      <li>Any live cell with two or three live neighbours lives on to the next generation.</li>
-      <li>Any live cell with more than three live neighbours dies, as if by over-population.</li>
-      <li>Any dead cell with exactly three live neighbours becomes a live cell, as if by reproduction.</li>
+      <li>Any live cell with fewer than two live neighbors dies, as if caused by under-population.</li>
+      <li>Any live cell with two or three live neighbors lives on to the next generation.</li>
+      <li>Any live cell with more than three live neighbors dies, as if by over-population.</li>
+      <li>Any dead cell with exactly three live neighbors becomes a live cell, as if by reproduction.</li>
     </ul>
 
     <p>Note that in our implementation of Life, like many others, the environment wraps around to the other side at the edges, like in Pac-Man.</p>
 
-    <p>This text serves as an explanation of my process in getting very good performance out of Life. To make this guide representative of many problems in performance optimization for scientific kernels, I have disallowed myself from pursuing algorithmic optimizations (that said, if you haven't seen <a href="https://en.wikipedia.org/wiki/Hashlife">Hashlife</a>, it is worth checking out). All the optimzation techniques you see here should be applicable to a wide variety of codes, and will focus on optimizing the naive algorithm for a given architecture. </p>
+    <p>This text serves as an explanation of my process in getting very good performance out of Life. To make this guide representative of many problems in performance optimization for scientific kernels, I have disallowed myself from pursuing algorithmic optimizations (that said, if you haven't seen <a href="https://en.wikipedia.org/wiki/Hashlife">Hashlife</a>, it is worth checking out). All the optimization techniques you see here should be applicable to a wide variety of codes, and will focus on optimizing the naive algorithm for a given architecture. </p>
 
-    <p>I should give anyone reading this guide an important warning before I start. These techniques can make the code go faster, but they increase code complexity by several orders of magnitude and tend to need different tunings for different machines. If someone else has written an optimized version of code that does what you want to do, I would strongly reccomend you use that code before trying the techniques you see here. Use optimized libraries, don't write them unless it is your job. </p>
+    <p>I should give anyone reading this guide an important warning before I start. These techniques can make the code go faster, but they increase code complexity by several orders of magnitude and tend to need different tunings for different machines. If someone else has written an optimized version of code that does what you want to do, I would strongly recommend you use that code before trying the techniques you see here. Use optimized libraries, don't write them unless it is your job. </p>
 
     <h2>reference.c</h2>
 
@@ -142,7 +142,7 @@
 
     <h2>simple.c</h2>
 
-    Becaues optimization make code complicated, it is adviseable to simplify the code whenever possible. Before we start heavily optimizing the reference implementation, we can fix the glaring flaws in the reference implementation. Here is the new inner loop:
+    Because optimization make code complicated, it is advisable to simplify the code whenever possible. Before we start heavily optimizing the reference implementation, we can fix the glaring flaws in the reference implementation. Here is the new inner loop:
 
 <!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i <span style="color: #333333">++</span>) {
     <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">int</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> height; y<span style="color: #333333">++</span>) {
@@ -166,7 +166,7 @@
   }
 </pre></div>
 
-    <p>On a 4096x4096 grid for 256 iterations, these optimizations provide a x speedup over the reference implementation. Not much, be we are just getting started!</p>
+    <p>On a 8192x8192 grid for 256 iterations, these optimizations provide a 1.288x speedup over the reference implementation. Not much, be we are just getting started!</p>
 
     <h2>Environment</h2>
     <p> The compiler you use and the machine you run on are both big factors in how well your code performs. Expecting code optimized for one platform to run well on another is like expecting your friend's shoe to fit your foot. You must optimize <i>for</i> a particular platform. With that in mind, I will show the results from running the command <code>lscpu</code> on my machine.
@@ -196,13 +196,13 @@ NUMA node0 CPU(s):     0-9,20-29
 NUMA node1 CPU(s):     10-19,30-39
 </code></pre>
     <p>Since this chip has 20 CPUs across two <a href="https://en.wikipedia.org/wiki/Non-uniform_memory_access">NUMA</a> domains, so we might need to use a distributed-memory parallel language to take full advantage of the processing power of this chip.</p>
-    <p>It is important to quantify the best performance possible, so that we know how much more we can optimize. One possible measurement is our peak performance. To calculate the peak performance in our case, we start by noticing that there are 12 necessary integer operations in our inner loop (we count the comparisons to 2 and 3, and we don't cound the redundant add and subtract of the cell value itself). We assume that we can do one instruction per clock cycle. The processor runs at 2.6*10<sup>9</sup> clock cycles per second, and this machine supports AVX2, so we can operate on 32 8-bit sized integers at once, and there are 20 cores. Therefore, on average we can advance one cell one iteration in 6.01*10<sup>-13</sup> seconds. Therefore, the theoretical peak time to compute our 4096x4096 test problem over 256 iterations in 2.58*10<sup>-3</sup> seconds. Keep this number in mind!</p>
+    <p>It is important to quantify the best performance possible, so that we know how much more we can optimize. One possible measurement is our peak performance. To calculate the peak performance in our case, we start by noticing that there are 12 necessary integer operations in our inner loop (we count the comparisons to 2 and 3, and we don't count the redundant add and subtract of the cell value itself). We assume that we can do one instruction per clock cycle. The processor runs at 2.6*10<sup>9</sup> clock cycles per second, and this machine supports AVX2, so we can operate on 32 8-bit sized integers at once, and there are 20 cores. Therefore, on average we can advance one cell one iteration in 7.2*10<sup>-12</sup> seconds. Therefore, the theoretical peak time to compute our 8192x8192 test problem over 256 iterations in 1.24*10<sup>-1</sup> seconds. Keep this number in mind!</p>
 
     <p>Another important environmental factor in the performance of your code is what compiler (and compiler flags) you are using. For the record, I am using gcc version 4.9.3 with the compiler flags "-O3 -march=native". Really dig in to your compiler's documentation, because some flags can speed up your code and you don't have to do any work!</p>
 
     <h2>padding.c</h2>
 
-    <p>Finally, we are ready to implement our first real optimization! Typically, codes spend a lot of their time in the inner loop. Our inner loop includes complicated modular arithmetic on indicies and a doubly-nested for loop. Let's fix this! We can do this using a technique called "padding". In short, instead of looking to the other side of the universe to wrap around in the inner loop, we will allocate an array with extra cells on all sides ("ghost cells") and fill these cells with values from the other side of the array. That way, when the inner loop accesses beyond the the edges of the universe, it looks like the universe is wrapping around.</p>
+    <p>Finally, we are ready to implement our first real optimization! Typically, codes spend a lot of their time in the inner loop. Our inner loop includes complicated modular arithmetic on indices and a doubly-nested for loop. Let's fix this! We can do this using a technique called "padding". In short, instead of looking to the other side of the universe to wrap around in the inner loop, we will allocate an array with extra cells on all sides ("ghost cells") and fill these cells with values from the other side of the array. That way, when the inner loop accesses beyond the the edges of the universe, it looks like the universe is wrapping around.</p>
 
     <p>Each time we perform an iteration, we lose the outer layer of ghost cells, since they are no longer valid (we did not calculate anything on the outermost layer of the array). To avoid copying with every iteration, we can pad with multiple ghost cell layers at once, and then run several iterations before copying again.</p>
 
@@ -355,11 +355,11 @@ NUMA node1 CPU(s):     10-19,30-39
 }
 </pre></div>
 
-    <p>On a 4096x4096 grid for 256 iterations, this code achieves our first significant speedup of x over the reference version!</p>
+    <p>On a 8192x8192 grid for 256 iterations, this code achieves our first significant speedup of 5.201x over the reference version!</p>
 
     <h2>blocked.c</h2>
     <p>Our code tends to progress linearly across each row, accessing only the rows above and below it. Life needs to access each element nine times (eight times while counting among neighbors, and once to calculate the cell itself). As computation proceeds row by row, these accesses occur in groups of three (once group for each row), and if three rows of the matrix can fit in L1 cache, then the data is only loaded once from cache per iteration. However, if our computation accessed the data many more times per iteration, it might benefit from a technique called blocking. </p>
-    <p>Blocking is the practice of grouping the memory accesses together to keep the data in the highest level of the memory hierarchy possible. Register blocking is the reuse of data while it is still in the registers. Register blocking occurs in the inner loop of your code when you reuse values you have loaded from memory instead of loading them multiple times. Cache blocking is the reuse of data while it resides in cache. Cache blocking can be achieved by restructuring the ordering of loops so that nearby values are accessed soon after each other. Typically, you want a cache block to take up a sizeable portion of your L1 cache. </p>
+    <p>Blocking is the practice of grouping the memory accesses together to keep the data in the highest level of the memory hierarchy possible. Register blocking is the reuse of data while it is still in the registers. Register blocking occurs in the inner loop of your code when you reuse values you have loaded from memory instead of loading them multiple times. Cache blocking is the reuse of data while it resides in cache. Cache blocking can be achieved by restructuring the ordering of loops so that nearby values are accessed soon after each other. Typically, you want a cache block to take up a sizable portion of your L1 cache. </p>
     <p>Although it doesn't help much in our case (the loop logic overhead exceeds memory benefits), we show an example of how to restructure the padded inner loop for cache blocking:</p>
 
 <!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #557799">#define          X_BLOCK WORD * 256</span>
@@ -490,10 +490,10 @@ NUMA node1 CPU(s):     10-19,30-39
     }
   }
 </pre></div>
-    <p>This code achieves a speedup of x over the reference on the 4096x4096 grid for 256 iterations. Not bad.</p>
+    <p>This code achieves a speedup of 58.06x over the reference on the 8192x8192 grid for 256 iterations. Not bad.</p>
 
     <h2>avx2.c</h2>
-    <p><a href="https://en.wikipedia.org/wiki/Advanced_Vector_Extensions">AVX</a> instructions are like double-wide SSE instructions. They can hold 256 bits (meaning 32 <code>uint8_t</code>), so we require that the width of the input is a multiple of 32. This code achieves a speedup of x over the reference on the 4096x4096 grid for 256 iterations, but because it is so similar to the SSE version we do not include it.</p>
+    <p><a href="https://en.wikipedia.org/wiki/Advanced_Vector_Extensions">AVX</a> instructions are like double-wide SSE instructions. They can hold 256 bits (meaning 32 <code>uint8_t</code>), so we require that the width of the input is a multiple of 32. This code achieves a speedup of 72.42x over the reference on the 8192x8192 grid for 256 iterations, but because it is so similar to the SSE version we do not include it. Note that this is 66.87% of the single CPU peak. Typically, once you are running at ~60% of peak on a single processor, getting additional speedups will yield quickly diminishing returns. It's time to go parallel!</p>
     <h2>omp.c</h2>
     <p>We have a pretty decent speedup over the reference on a single thread, so why don't we move to multiple threads? <a href="https://en.wikipedia.org/wiki/OpenMP">OpenMP</a> is a library that makes it easy to distribute loop iterations among processes. Here's what it looks like: </p>
 
@@ -546,17 +546,17 @@ NUMA node1 CPU(s):     10-19,30-39
     }
 </pre></div>
 
-    <p>Now we are getting the speedups we deserve! This gets a speedup of x over the reference version on the 4096x4096 grid for 256 iterations, and we are only using 10 of the available 40 processors on this cpu! Keep in mind that we are currently only running at 2% of our theoretical peak processing rate!</p>
+    <p>Now we are getting the speedups we deserve! This gets a speedup of 299.1x over the reference version on the 8192x8192 grid for 256 iterations, and we are only using 10 of the available 40 processors on this CPU! Keep in mind that we are currently only running at 13.81% of our theoretical peak processing rate!</p>
     <p>Our OpenMP code does not scale beyond the NUMA node, however. From the following graph, we see that our code gets no performance gain beyond 10 threads.</p>
     <img src=omp_plot.png></img>
 
     <h2>mpi.c</h2>
 
-    <p>Because this machine has two <a href="https://en.wikipedia.org/wiki/Non-uniform_memory_access">NUMA</a> nodes, our problem would likely benefit from having memory local to each NUMA node. We can do this using <a href="https://en.wikipedia.org/wiki/Message_Passing_Interface">MPI</a>, and binding processes to physical cpus. This way, each NUMA node has a separate MPI task with it's own memory, instead of OpenMP. Each MPI task can then run OpenMP on the NUMA node.</p>
+    <p>Because this machine has two <a href="https://en.wikipedia.org/wiki/Non-uniform_memory_access">NUMA</a> nodes, our problem would likely benefit from having memory local to each NUMA node. We can do this using <a href="https://en.wikipedia.org/wiki/Message_Passing_Interface">MPI</a>, and binding processes to physical CPUs. This way, each NUMA node has a separate MPI task with it's own memory, instead of OpenMP. Each MPI task can then run OpenMP on the NUMA node.</p>
 
     <p>Our MPI program makes several simplifications, assuming that the number of processors is a perfect square, that the height is divisible by the square root of the number of processors, and that the width is divisible by the word size times the square root of the number of processes.</p>
 
-    <p>There is a lot to say about the MPI code, but I would first like to point out that it is more that 10 times longer than our reference code. I will list the code itself, but the general idea is that each process is part of a grid, and instead of copying the ghost cells like we did in previous versions, we will send them to our neighbors. The code follows:</p>
+    <p>I would like to point out that the MPI code is more that 10 times longer than our reference code. I will list the code itself, but the general idea is that each process is part of a grid, and instead of copying the ghost cells like we did in previous versions, we will send them to our neighbors. The code follows:</p>
 
 <!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>stdlib.h<span style="color: #333333">&gt;</span>
 <span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>stdint.h<span style="color: #333333">&gt;</span>
@@ -708,7 +708,7 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
 
     <span style="color: #888888">//Here are all of the sends to our neighbors in every cardinal direction.</span>
     <span style="color: #888888">//The sends are nonblocking, so that we can move right on to the next send</span>
-    <span style="color: #888888">//without waiting for our neighbors to recieve.</span>
+    <span style="color: #888888">//without waiting for our neighbors to receive.</span>
     <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
       <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(ghost_buffer_top_left_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x,
@@ -814,8 +814,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>left_req);
 
-    <span style="color: #888888">//Now we recieve ghost zones from all of our neighbors. Since we need to</span>
-    <span style="color: #888888">//process our recieved data immediately, the recieved data is blocking.</span>
+    <span style="color: #888888">//Now we receive ghost zones from all of our neighbors. Since we need to</span>
+    <span style="color: #888888">//process our received data immediately, the received data is blocking.</span>
     MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_bottom_right_recv,
              X_IN_GHOST <span style="color: #333333">*</span> Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
@@ -963,7 +963,7 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
     }
 
     <span style="color: #888888">//Before we start another iteration and start sending again, let&#39;s make sure</span>
-    <span style="color: #888888">//that everyone has recieved our messages.</span>
+    <span style="color: #888888">//that everyone has received our messages.</span>
     MPI_Wait(<span style="color: #333333">&amp;</span>top_left_req, MPI_STATUS_IGNORE);
     MPI_Wait(<span style="color: #333333">&amp;</span>top_req, MPI_STATUS_IGNORE);
     MPI_Wait(<span style="color: #333333">&amp;</span>top_right_req, MPI_STATUS_IGNORE);
@@ -1031,18 +1031,68 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
 }
 </pre></div>
 
-    <p>This code runs our 8192x8192 problem for 256 iterations in x seconds, a speedup of x over the reference code. Another benefit to this code is that it can scale to arbitrarily large life grid sizes given additional processors. Since the focus of this guide is on-node, we only give numbers for our particular node. Here is a table showing the various times, speedups, and percentages of peak for each code<p>
+    <p>This code runs our 8192x8192 problem for 256 iterations in 0.71 seconds, a speedup of 370.3x over the reference code. Another benefit to this code is that it can scale to arbitrarily large life grid sizes given additional processors. Since the focus of this guide is on-node, we only give numbers for our particular node. Here is a table showing the various times, speedups, and percentages of peak for each code:<p>
 
-      Reference time: 
-         Simple time: 
-         Padded time: 
-            SSE time: 
-            AVX time: 
-            OMP(10 threads) time: 0.928069
-            MPI(4 nodes, 10 threads per node) time: 0.0882668
+<style type="text/css">
+.tg  {border-collapse:collapse;border-spacing:0;border-color:#ccc;}
+.tg td{font-family:Arial, sans-serif;font-size:14px;padding:10px 5px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#fff;}
+.tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:10px 5px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#f0f0f0;}
+.tg .tg-yw4l{vertical-align:top}
+</style>
+<table class="tg">
+  <tr>
+    <th class="tg-yw4l"></th>
+    <th class="tg-yw4l">Time (seconds)<br></th>
+    <th class="tg-yw4l">Speedup (over reference.c)<br></th>
+    <th class="tg-yw4l">% of peak<br></th>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">reference.c</td>
+    <td class="tg-yw4l">268.334</td>
+    <td class="tg-yw4l">1.00000</td>
+    <td class="tg-yw4l">0.04617</td>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">simple.c</td>
+    <td class="tg-yw4l">208.351</td>
+    <td class="tg-yw4l">1.28789</td>
+    <td class="tg-yw4l">0.05946</td>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">padded.c</td>
+    <td class="tg-yw4l">51.5913</td>
+    <td class="tg-yw4l">5.20115</td>
+    <td class="tg-yw4l">0.24014</td>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">sse2.c</td>
+    <td class="tg-yw4l">4.62193</td>
+    <td class="tg-yw4l">58.0567</td>
+    <td class="tg-yw4l">2.68055</td>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">avx2.c</td>
+    <td class="tg-yw4l">3.70528</td>
+    <td class="tg-yw4l">72.4194</td>
+    <td class="tg-yw4l">3.34370</td>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">omp.c (10 threads)<br></td>
+    <td class="tg-yw4l">0.89704</td>
+    <td class="tg-yw4l">299.133</td>
+    <td class="tg-yw4l">13.8113</td>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">mpi.c (4 processes, 10 threads each)<br></td>
+    <td class="tg-yw4l">0.72468</td>
+    <td class="tg-yw4l">370.281</td>
+    <td class="tg-yw4l">17.0964</td>
+  </tr>
+</table>
 
+    <p>You may be wondering why the mpi.c runs faster than the omp.c. After all, omp.c performs as well at 10 threads as it does at 40 threads, and mpi.c has a lot of extra copying into buffers, etc. I suspect that because the MPI code explicitly manages the memory, passing only the ghost zones to its neighbors once every couple of iterations, mpi.c spends less time in communication. The OpenMP version of the code leaves the memory management to the cache, which doesn't know or care about our delicate ghost zones. By keeping two MPI processes on each NUMA node with 10 OpenMP threads each, we can explicitly manage communication between NUMA nodes.</p>
 
+    <p>Hopefully you had as much fun reading this code as I did writing it. This writeup is heavy on code and light on analysis, but the main takeaway here is that a balance of memory and computation optimizations are necessary to get the full performance out of your system.</p>
 
-baseboard_hp,cpu_intel,haswell,e5-2660_v3,2.60ghz,numa2,smt,10gbe
   </body>
 </html>
