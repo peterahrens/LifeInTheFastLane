@@ -493,8 +493,31 @@ NUMA node1 CPU(s):     10-19,30-39
     <p>This code achieves a speedup of 58.06x over the reference on the 8192x8192 grid for 256 iterations. Not bad.</p>
 
     <h2>avx2.c</h2>
-    <p><a href="https://en.wikipedia.org/wiki/Advanced_Vector_Extensions">AVX</a> instructions are like double-wide SSE instructions. They can hold 256 bits (meaning 32 <code>uint8_t</code>), so we require that the width of the input is a multiple of 32. This code achieves a speedup of 72.42x over the reference on the 8192x8192 grid for 256 iterations, but because it is so similar to the SSE version we do not include it. Note that this is 66.87% of the single CPU peak. Typically, once you are running at ~60% of peak on a single processor, getting additional speedups will yield quickly diminishing returns. It's time to go parallel!</p>
+
+    <p><a href="https://en.wikipedia.org/wiki/Advanced_Vector_Extensions">AVX</a> instructions are like double-wide SSE instructions. They can hold 256 bits (meaning 32 <code>uint8_t</code>), so we require that the width of the input is a multiple of 32. This code achieves a speedup of 72.42x over the reference on the 8192x8192 grid for 256 iterations, but because it is so similar to the SSE version we do not include it. Note that this is 66.87% of the single CPU peak. </p>
+
+    <h2>streaming.c</h2>
+
+    <p>Because life performs only 12 operations per byte loaded (and an AVX instruction can operate on 32 bytes simultaneously), our simulation has low arithmetic intensity and would likely benefit from memory optimizations. Therefore, I put a <a href="https://software.intel.com/sites/default/files/article/326703/streaming-stores-2.pdf">streaming store</a> in the inner loop. A streaming store writes to memory without first reading the value into cache (leaving the cache to do more useful things. Since we know we do not need to read the value in the <code>new</code> array, this is the perfect operation for us. The last line of our inner loop moves from this:
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%">          _mm256_store_si256((__m256i<span style="color: #333333">*</span>)(new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x),
+            _mm256_or_si256(
+            _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
+            _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
+</pre></div>
+
+    To this:
+
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%">          _mm256_stream_si256((__m256i<span style="color: #333333">*</span>)(new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x),
+            _mm256_or_si256(
+            _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
+            _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
+</pre></div>
+
+    And our code now achieves a speedup of 86.44x over the reference on the 8192x8192 grid for 256 iterations. We are now running at 79.82% of the single CPU peak. Typically, once you are running at ~80% of peak on a single processor, getting additional speedups will yield quickly diminishing returns. It's time to go parallel!</p>
+
     <h2>omp.c</h2>
+
     <p>We have a pretty decent speedup over the reference on a single thread, so why don't we move to multiple threads? <a href="https://en.wikipedia.org/wiki/OpenMP">OpenMP</a> is a library that makes it easy to distribute loop iterations among processes. Here's what it looks like: </p>
 
 <!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%">    <span style="color: #FF0000; background-color: #FFAAAA">#</span>pragma omp parallel
@@ -524,7 +547,7 @@ NUMA node1 CPU(s):     10-19,30-39
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)u), n);
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_load_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)), n);
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
-            _mm256_store_si256((__m256i<span style="color: #333333">*</span>)(my_new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x),
+            _mm256_stream_si256((__m256i<span style="color: #333333">*</span>)(my_new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> padded_width <span style="color: #333333">+</span> x),
               _mm256_or_si256(
               _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
               _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
@@ -544,10 +567,11 @@ NUMA node1 CPU(s):     10-19,30-39
         new <span style="color: #333333">=</span> my_new;
       }
     }
+  }
 </pre></div>
 
-    <p>Now we are getting the speedups we deserve! This gets a speedup of 299.1x over the reference version on the 8192x8192 grid for 256 iterations, and we are only using 10 of the available 40 processors on this CPU! Keep in mind that we are currently only running at 13.81% of our theoretical peak processing rate!</p>
-    <p>Our OpenMP code does not scale beyond the NUMA node, however. From the following graph, we see that our code gets no performance gain beyond 10 threads.</p>
+    <p>Now we are getting the speedups we deserve! This gets a speedup of 375.6x over the reference version on the 8192x8192 grid for 256 iterations, and we are only using 10 of the available 40 processors on this CPU! Keep in mind that we are currently only running at 17.34% of our theoretical peak processing rate!</p>
+    <p>Our OpenMP code does not scale beyond the NUMA node, however. From the following graph, we see that our code gets no real performance gain beyond 10 threads.</p>
     <img src=omp_plot.png></img>
 
     <h2>mpi.c</h2>
@@ -558,59 +582,59 @@ NUMA node1 CPU(s):     10-19,30-39
 
     <p>I would like to point out that the MPI code is more that 10 times longer than our reference code. I will list the code itself, but the general idea is that each process is part of a grid, and instead of copying the ghost cells like we did in previous versions, we will send them to our neighbors. The code follows:</p>
 
-<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>stdlib.h<span style="color: #333333">&gt;</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>stdint.h<span style="color: #333333">&gt;</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>immintrin.h<span style="color: #333333">&gt;</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>math.h<span style="color: #333333">&gt;</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>omp.h<span style="color: #333333">&gt;</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>include <span style="color: #333333">&lt;</span>mpi.h<span style="color: #333333">&gt;</span>
+<!-- HTML generated using hilite.me --><div style="background: #ffffff; overflow:auto;width:auto;border:solid gray;border-width:.1em .1em .1em .8em;padding:.2em .6em;"><pre style="margin: 0; line-height: 125%"><span style="color: #557799">#include &lt;stdlib.h&gt;</span>
+<span style="color: #557799">#include &lt;stdint.h&gt;</span>
+<span style="color: #557799">#include &lt;immintrin.h&gt;</span>
+<span style="color: #557799">#include &lt;math.h&gt;</span>
+<span style="color: #557799">#include &lt;omp.h&gt;</span>
+<span style="color: #557799">#include &lt;mpi.h&gt;</span>
 
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define             WORD (<span style="color: #0000DD; font-weight: bold">256</span><span style="color: #333333">/</span><span style="color: #0000DD; font-weight: bold">8</span>)
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define        OUT_GHOST <span style="color: #0000DD; font-weight: bold">7</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define      X_OUT_GHOST (((OUT_GHOST <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>)<span style="color: #333333">/</span>WORD <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> WORD)
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define      Y_OUT_GHOST OUT_GHOST
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define         IN_GHOST (OUT_GHOST <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define       X_IN_GHOST ((OUT_GHOST<span style="color: #333333">/</span>WORD <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> WORD)
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define       Y_IN_GHOST IN_GHOST
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define X_IN_GHOST_WORDS (X_IN_GHOST<span style="color: #333333">/</span>WORD)
+<span style="color: #557799">#define             WORD (256/8)</span>
+<span style="color: #557799">#define        OUT_GHOST 7</span>
+<span style="color: #557799">#define      X_OUT_GHOST (((OUT_GHOST - 1)/WORD + 1) * WORD)</span>
+<span style="color: #557799">#define      Y_OUT_GHOST OUT_GHOST</span>
+<span style="color: #557799">#define         IN_GHOST (OUT_GHOST + 1)</span>
+<span style="color: #557799">#define       X_IN_GHOST ((OUT_GHOST/WORD + 1) * WORD)</span>
+<span style="color: #557799">#define       Y_IN_GHOST IN_GHOST</span>
+<span style="color: #557799">#define X_IN_GHOST_WORDS (X_IN_GHOST/WORD)</span>
 
 <span style="color: #888888">//Here are the tags we will use to distinguish where the data is coming from</span>
 <span style="color: #888888">//and going to. Notice that the top left corner is sent to the bottom right</span>
 <span style="color: #888888">//corner of the top left neighbor.</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define     TOP_LEFT_SEND <span style="color: #0000DD; font-weight: bold">0</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define BOTTOM_RIGHT_RECV <span style="color: #0000DD; font-weight: bold">0</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define          TOP_SEND <span style="color: #0000DD; font-weight: bold">1</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define       BOTTOM_RECV <span style="color: #0000DD; font-weight: bold">1</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define    TOP_RIGHT_SEND <span style="color: #0000DD; font-weight: bold">2</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define  BOTTOM_LEFT_RECV <span style="color: #0000DD; font-weight: bold">2</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define        RIGHT_SEND <span style="color: #0000DD; font-weight: bold">3</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define         LEFT_RECV <span style="color: #0000DD; font-weight: bold">3</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define BOTTOM_RIGHT_SEND <span style="color: #0000DD; font-weight: bold">4</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define     TOP_LEFT_RECV <span style="color: #0000DD; font-weight: bold">4</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define       BOTTOM_SEND <span style="color: #0000DD; font-weight: bold">5</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define          TOP_RECV <span style="color: #0000DD; font-weight: bold">5</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define  BOTTOM_LEFT_SEND <span style="color: #0000DD; font-weight: bold">6</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define    TOP_RIGHT_RECV <span style="color: #0000DD; font-weight: bold">6</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define         LEFT_SEND <span style="color: #0000DD; font-weight: bold">7</span>
-<span style="color: #FF0000; background-color: #FFAAAA">#</span>define        RIGHT_RECV <span style="color: #0000DD; font-weight: bold">7</span>
+<span style="color: #557799">#define     TOP_LEFT_SEND 0</span>
+<span style="color: #557799">#define BOTTOM_RIGHT_RECV 0</span>
+<span style="color: #557799">#define          TOP_SEND 1</span>
+<span style="color: #557799">#define       BOTTOM_RECV 1</span>
+<span style="color: #557799">#define    TOP_RIGHT_SEND 2</span>
+<span style="color: #557799">#define  BOTTOM_LEFT_RECV 2</span>
+<span style="color: #557799">#define        RIGHT_SEND 3</span>
+<span style="color: #557799">#define         LEFT_RECV 3</span>
+<span style="color: #557799">#define BOTTOM_RIGHT_SEND 4</span>
+<span style="color: #557799">#define     TOP_LEFT_RECV 4</span>
+<span style="color: #557799">#define       BOTTOM_SEND 5</span>
+<span style="color: #557799">#define          TOP_RECV 5</span>
+<span style="color: #557799">#define  BOTTOM_LEFT_SEND 6</span>
+<span style="color: #557799">#define    TOP_RIGHT_RECV 6</span>
+<span style="color: #557799">#define         LEFT_SEND 7</span>
+<span style="color: #557799">#define        RIGHT_RECV 7</span>
 
-<span style="color: #008800; font-weight: bold">void</span> <span style="color: #333333">*</span>aligned_malloc(<span style="color: #008800; font-weight: bold">int</span> size) {
-    <span style="color: #008800; font-weight: bold">char</span> <span style="color: #333333">*</span>mem <span style="color: #333333">=</span> malloc(sizeof(<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>) <span style="color: #333333">+</span> size <span style="color: #333333">+</span> WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>);
-    <span style="color: #008800; font-weight: bold">void</span> <span style="color: #333333">**</span>ptr <span style="color: #333333">=</span> (<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">**</span>)(((uintptr_t)(mem <span style="color: #333333">+</span> sizeof(<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>) <span style="color: #333333">+</span> WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>)) <span style="color: #333333">&amp;</span> <span style="color: #333333">~</span>((uintptr_t)(WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>)));
+<span style="color: #333399; font-weight: bold">void</span> <span style="color: #333333">*</span><span style="color: #0066BB; font-weight: bold">aligned_malloc</span>(<span style="color: #333399; font-weight: bold">int</span> size) {
+    <span style="color: #333399; font-weight: bold">char</span> <span style="color: #333333">*</span>mem <span style="color: #333333">=</span> malloc(<span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>) <span style="color: #333333">+</span> size <span style="color: #333333">+</span> WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>);
+    <span style="color: #333399; font-weight: bold">void</span> <span style="color: #333333">**</span>ptr <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">**</span>)(((<span style="color: #333399; font-weight: bold">uintptr_t</span>)(mem <span style="color: #333333">+</span> <span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>) <span style="color: #333333">+</span> WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>)) <span style="color: #333333">&amp;</span> <span style="color: #333333">~</span>((<span style="color: #333399; font-weight: bold">uintptr_t</span>)(WORD <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>)));
     ptr[<span style="color: #333333">-</span><span style="color: #0000DD; font-weight: bold">1</span>] <span style="color: #333333">=</span> mem;
     <span style="color: #008800; font-weight: bold">return</span> ptr;
 }
 
-<span style="color: #008800; font-weight: bold">void</span> aligned_free(<span style="color: #008800; font-weight: bold">void</span> <span style="color: #333333">*</span>ptr) {
-    free(((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">**</span>)ptr)[<span style="color: #333333">-</span><span style="color: #0000DD; font-weight: bold">1</span>]);
+<span style="color: #333399; font-weight: bold">void</span> <span style="color: #0066BB; font-weight: bold">aligned_free</span>(<span style="color: #333399; font-weight: bold">void</span> <span style="color: #333333">*</span>ptr) {
+    free(((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">**</span>)ptr)[<span style="color: #333333">-</span><span style="color: #0000DD; font-weight: bold">1</span>]);
 }
 
-unsigned <span style="color: #333333">*</span>life (<span style="color: #008800; font-weight: bold">const</span> unsigned height,
-                <span style="color: #008800; font-weight: bold">const</span> unsigned width,
-                <span style="color: #008800; font-weight: bold">const</span> unsigned <span style="color: #333333">*</span> <span style="color: #008800; font-weight: bold">const</span> initial,
-                <span style="color: #008800; font-weight: bold">const</span> unsigned iters) {
-  <span style="color: #008800; font-weight: bold">int</span> rank;
-  <span style="color: #008800; font-weight: bold">int</span> size;
+<span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span><span style="color: #0066BB; font-weight: bold">life</span> (<span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> height,
+                <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> width,
+                <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span> <span style="color: #008800; font-weight: bold">const</span> initial,
+                <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> iters) {
+  <span style="color: #333399; font-weight: bold">int</span> rank;
+  <span style="color: #333399; font-weight: bold">int</span> size;
 
   MPI_Comm_rank(MPI_COMM_WORLD, <span style="color: #333333">&amp;</span>rank);
   MPI_Comm_size(MPI_COMM_WORLD, <span style="color: #333333">&amp;</span>size);
@@ -620,18 +644,18 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
   <span style="color: #888888">//times the width of a word, and that the height is divisible by the</span>
   <span style="color: #888888">//square root of the number of processes, and the number of processes</span>
   <span style="color: #888888">//is a perfect square</span>
-  <span style="color: #008800; font-weight: bold">const</span> unsigned side <span style="color: #333333">=</span> (<span style="color: #008800; font-weight: bold">int</span>)sqrt((<span style="color: #008800; font-weight: bold">double</span>)size);
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_height <span style="color: #333333">=</span> height<span style="color: #333333">/</span>side;
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_width <span style="color: #333333">=</span> width<span style="color: #333333">/</span>side;
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_y <span style="color: #333333">=</span> (rank <span style="color: #333333">/</span> side);
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_x <span style="color: #333333">=</span> (rank <span style="color: #333333">%</span> side);
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> side <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">int</span>)sqrt((<span style="color: #333399; font-weight: bold">double</span>)size);
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_height <span style="color: #333333">=</span> height<span style="color: #333333">/</span>side;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_width <span style="color: #333333">=</span> width<span style="color: #333333">/</span>side;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_y <span style="color: #333333">=</span> (rank <span style="color: #333333">/</span> side);
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_x <span style="color: #333333">=</span> (rank <span style="color: #333333">%</span> side);
 
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_padded_height <span style="color: #333333">=</span> my_height <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">*</span> Y_IN_GHOST;
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_padded_width <span style="color: #333333">=</span> my_width <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">*</span> X_IN_GHOST;
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_width_words <span style="color: #333333">=</span> my_width<span style="color: #333333">/</span>WORD;
-  <span style="color: #008800; font-weight: bold">const</span> unsigned my_padded_width_words <span style="color: #333333">=</span> my_padded_width<span style="color: #333333">/</span>WORD;
-  uint8_t <span style="color: #333333">*</span>universe <span style="color: #333333">=</span> (uint8_t<span style="color: #333333">*</span>)aligned_malloc(my_padded_height <span style="color: #333333">*</span> my_padded_width);
-  uint8_t <span style="color: #333333">*</span><span style="color: #008800; font-weight: bold">new</span> <span style="color: #333333">=</span> (uint8_t<span style="color: #333333">*</span>)aligned_malloc(my_padded_height <span style="color: #333333">*</span> my_padded_width);
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_padded_height <span style="color: #333333">=</span> my_height <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">*</span> Y_IN_GHOST;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_padded_width <span style="color: #333333">=</span> my_width <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span> <span style="color: #333333">*</span> X_IN_GHOST;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_width_words <span style="color: #333333">=</span> my_width<span style="color: #333333">/</span>WORD;
+  <span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">unsigned</span> my_padded_width_words <span style="color: #333333">=</span> my_padded_width<span style="color: #333333">/</span>WORD;
+  <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>universe <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">uint8_t</span><span style="color: #333333">*</span>)aligned_malloc(my_padded_height <span style="color: #333333">*</span> my_padded_width);
+  <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>new <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">uint8_t</span><span style="color: #333333">*</span>)aligned_malloc(my_padded_height <span style="color: #333333">*</span> my_padded_width);
 
   <span style="color: #008800; font-weight: bold">const</span> __m256i ones <span style="color: #333333">=</span> _mm256_set_epi8(<span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>,
                                        <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>, <span style="color: #0000DD; font-weight: bold">1</span>,
@@ -643,14 +667,14 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
   <span style="color: #888888">//We start by sending the data to all the processes. The data is first</span>
   <span style="color: #888888">//partitioned into a grid of rectangles (one for each processor).</span>
   <span style="color: #888888">//Here we first break up the initial data into rectangles.</span>
-  uint8_t <span style="color: #333333">*</span>scatter_buffer_send;
-  uint8_t <span style="color: #333333">*</span>scatter_buffer_recv <span style="color: #333333">=</span> (uint8_t<span style="color: #333333">*</span>)aligned_malloc(my_height <span style="color: #333333">*</span> my_width);
+  <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>scatter_buffer_send;
+  <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>scatter_buffer_recv <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">uint8_t</span><span style="color: #333333">*</span>)aligned_malloc(my_height <span style="color: #333333">*</span> my_width);
   <span style="color: #008800; font-weight: bold">if</span> (rank <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">0</span>) {
-    scatter_buffer_send <span style="color: #333333">=</span> (uint8_t<span style="color: #333333">*</span>)aligned_malloc(height <span style="color: #333333">*</span> width);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned their_y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_y <span style="color: #333333">&lt;</span> side; their_y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned their_x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_x <span style="color: #333333">&lt;</span> side; their_x<span style="color: #333333">++</span>) {
-        <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
-          <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width; x<span style="color: #333333">++</span>) {
+    scatter_buffer_send <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">uint8_t</span><span style="color: #333333">*</span>)aligned_malloc(height <span style="color: #333333">*</span> width);
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> their_y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_y <span style="color: #333333">&lt;</span> side; their_y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> their_x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_x <span style="color: #333333">&lt;</span> side; their_x<span style="color: #333333">++</span>) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
+          <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width; x<span style="color: #333333">++</span>) {
             scatter_buffer_send[(their_y <span style="color: #333333">*</span> side <span style="color: #333333">+</span> their_x) <span style="color: #333333">*</span> (my_width <span style="color: #333333">*</span> my_height) <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_width <span style="color: #333333">+</span> x] <span style="color: #333333">=</span>
               initial[(their_y <span style="color: #333333">*</span> my_height <span style="color: #333333">+</span> y) <span style="color: #333333">*</span> width <span style="color: #333333">+</span> their_x <span style="color: #333333">*</span> my_width <span style="color: #333333">+</span> x];
           }
@@ -658,18 +682,18 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
       }
     }
   }
-  MPI_Scatter((<span style="color: #008800; font-weight: bold">const</span> <span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_send,
+  MPI_Scatter((<span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_send,
               my_height <span style="color: #333333">*</span> my_width,
               MPI_UNSIGNED_CHAR,
-              (<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_recv,
+              (<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_recv,
               my_height <span style="color: #333333">*</span> my_width,
               MPI_UNSIGNED_CHAR,
               <span style="color: #0000DD; font-weight: bold">0</span>,
               MPI_COMM_WORLD);
   <span style="color: #888888">//Now that the data has been scattered, we copy our personal rectangle into</span>
   <span style="color: #888888">//our local universe.</span>
-  <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> Y_IN_GHOST; y <span style="color: #333333">&lt;</span> Y_IN_GHOST <span style="color: #333333">+</span> my_height; y<span style="color: #333333">++</span>) {
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> X_IN_GHOST; x <span style="color: #333333">&lt;</span> X_IN_GHOST <span style="color: #333333">+</span> my_width; x<span style="color: #333333">++</span>) {
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> Y_IN_GHOST; y <span style="color: #333333">&lt;</span> Y_IN_GHOST <span style="color: #333333">+</span> my_height; y<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST; x <span style="color: #333333">&lt;</span> X_IN_GHOST <span style="color: #333333">+</span> my_width; x<span style="color: #333333">++</span>) {
 
       universe[(y <span style="color: #333333">*</span> my_padded_width) <span style="color: #333333">+</span> x] <span style="color: #333333">=</span> scatter_buffer_recv[(y <span style="color: #333333">-</span> Y_IN_GHOST) <span style="color: #333333">*</span> my_width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> X_IN_GHOST];
     }
@@ -703,14 +727,14 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
   MPI_Request bottom_left_req;
   MPI_Request left_req;
 
-  <span style="color: #008800; font-weight: bold">for</span> (unsigned i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i<span style="color: #333333">+=</span> IN_GHOST) {
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> i <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; i <span style="color: #333333">&lt;</span> iters; i<span style="color: #333333">+=</span> IN_GHOST) {
     __m256i <span style="color: #333333">*</span>universe_words <span style="color: #333333">=</span> (__m256i<span style="color: #333333">*</span>)universe;
 
     <span style="color: #888888">//Here are all of the sends to our neighbors in every cardinal direction.</span>
     <span style="color: #888888">//The sends are nonblocking, so that we can move right on to the next send</span>
     <span style="color: #888888">//without waiting for our neighbors to receive.</span>
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(ghost_buffer_top_left_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x,
           _mm256_load_si256(universe_words <span style="color: #333333">+</span> (Y_IN_GHOST <span style="color: #333333">+</span> y) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
@@ -722,8 +746,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               TOP_LEFT_SEND,
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>top_left_req);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(ghost_buffer_top_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_width_words <span style="color: #333333">+</span> x,
           _mm256_load_si256(universe_words <span style="color: #333333">+</span> (Y_IN_GHOST <span style="color: #333333">+</span> y) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
@@ -735,8 +759,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               TOP_SEND,
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>top_req);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(ghost_buffer_top_right_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x,
           _mm256_load_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> my_width_words));
       }
@@ -748,8 +772,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               TOP_RIGHT_SEND,
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>top_right_req);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
-        <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
           _mm256_store_si256(ghost_buffer_right_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x,
             _mm256_load_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> my_width_words));
         }
@@ -761,8 +785,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               RIGHT_SEND,
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>right_req);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-        <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
           _mm256_store_si256(ghost_buffer_bottom_right_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x,
             _mm256_load_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> my_height) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> my_width_words));
         }
@@ -774,8 +798,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               BOTTOM_RIGHT_SEND,
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>bottom_right_req);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(ghost_buffer_bottom_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_width_words <span style="color: #333333">+</span> x,
           _mm256_load_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> my_height) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS));
       }
@@ -787,8 +811,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               BOTTOM_SEND,
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>bottom_req);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(ghost_buffer_bottom_left_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x,
           _mm256_load_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> my_height) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS));
       }
@@ -800,8 +824,8 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
               BOTTOM_LEFT_SEND,
               MPI_COMM_WORLD,
               <span style="color: #333333">&amp;</span>bottom_left_req);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
-        <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
           _mm256_store_si256(ghost_buffer_left_send <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x,
             _mm256_load_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS));
         }
@@ -816,106 +840,106 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
 
     <span style="color: #888888">//Now we receive ghost zones from all of our neighbors. Since we need to</span>
     <span style="color: #888888">//process our received data immediately, the received data is blocking.</span>
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_bottom_right_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_bottom_right_recv,
              X_IN_GHOST <span style="color: #333333">*</span> Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
              ((my_y <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side) <span style="color: #333333">*</span> side <span style="color: #333333">+</span> ((my_x <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side),
              BOTTOM_RIGHT_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> my_height) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> my_width_words,
           _mm256_load_si256(ghost_buffer_bottom_right_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
     }
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_bottom_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_bottom_recv,
              my_width <span style="color: #333333">*</span> Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
              ((my_y <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side) <span style="color: #333333">*</span> side <span style="color: #333333">+</span> my_x,
              BOTTOM_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> my_height) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS,
           _mm256_load_si256(ghost_buffer_bottom_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_width_words <span style="color: #333333">+</span> x));
       }
     }
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_bottom_left_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_bottom_left_recv,
              X_IN_GHOST <span style="color: #333333">*</span> Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
              ((my_y <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side) <span style="color: #333333">*</span> side <span style="color: #333333">+</span> ((my_x <span style="color: #333333">+</span> side <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side),
              BOTTOM_LEFT_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> my_height) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x,
           _mm256_load_si256(ghost_buffer_bottom_left_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
     }
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_left_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_left_recv,
              X_IN_GHOST <span style="color: #333333">*</span> my_height,
              MPI_UNSIGNED_CHAR,
              my_y <span style="color: #333333">*</span> side <span style="color: #333333">+</span> ((my_x <span style="color: #333333">+</span> side <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side),
              LEFT_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x,
           _mm256_load_si256(ghost_buffer_left_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
     }
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_top_left_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_top_left_recv,
              X_IN_GHOST <span style="color: #333333">*</span> Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
              ((my_y <span style="color: #333333">+</span> side <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side) <span style="color: #333333">*</span> side <span style="color: #333333">+</span> ((my_x <span style="color: #333333">+</span> side <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side),
              TOP_LEFT_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x,
           _mm256_load_si256(ghost_buffer_top_left_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
     }
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_top_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_top_recv,
              my_width <span style="color: #333333">*</span> Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
              ((my_y <span style="color: #333333">+</span> side <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side) <span style="color: #333333">*</span> side <span style="color: #333333">+</span> my_x,
              TOP_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width_words; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS,
           _mm256_load_si256(ghost_buffer_top_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_width_words <span style="color: #333333">+</span> x));
       }
     }
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_top_right_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_top_right_recv,
              X_IN_GHOST <span style="color: #333333">*</span> Y_IN_GHOST,
              MPI_UNSIGNED_CHAR,
              ((my_y <span style="color: #333333">+</span> side <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side) <span style="color: #333333">*</span> side <span style="color: #333333">+</span> ((my_x <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side),
              TOP_RIGHT_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> Y_IN_GHOST; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> my_width_words,
           _mm256_load_si256(ghost_buffer_top_right_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
     }
-    MPI_Recv((<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_right_recv,
+    MPI_Recv((<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)ghost_buffer_right_recv,
              X_IN_GHOST <span style="color: #333333">*</span> my_height,
              MPI_UNSIGNED_CHAR,
              my_y <span style="color: #333333">*</span> side <span style="color: #333333">+</span> ((my_x <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">%</span> side),
              RIGHT_RECV,
              MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> X_IN_GHOST_WORDS; x<span style="color: #333333">++</span>) {
         _mm256_store_si256(universe_words <span style="color: #333333">+</span> (y <span style="color: #333333">+</span> Y_IN_GHOST) <span style="color: #333333">*</span> my_padded_width_words <span style="color: #333333">+</span> x <span style="color: #333333">+</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> my_width_words,
           _mm256_load_si256(ghost_buffer_right_recv <span style="color: #333333">+</span> y <span style="color: #333333">*</span> X_IN_GHOST_WORDS <span style="color: #333333">+</span> x));
       }
@@ -924,16 +948,16 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
     <span style="color: #888888">//The inner loop is the same.</span>
     <span style="color: #FF0000; background-color: #FFAAAA">#</span>pragma omp parallel
     {
-      uint8_t <span style="color: #333333">*</span>my_universe <span style="color: #333333">=</span> universe;
-      uint8_t <span style="color: #333333">*</span>my_new <span style="color: #333333">=</span> <span style="color: #008800; font-weight: bold">new</span>;
+      <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>my_universe <span style="color: #333333">=</span> universe;
+      <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>my_new <span style="color: #333333">=</span> new;
 
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned j <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; j <span style="color: #333333">&lt;</span> IN_GHOST <span style="color: #333333">&amp;</span> j <span style="color: #333333">+</span> i <span style="color: #333333">&lt;</span> iters; j<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> j <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; j <span style="color: #333333">&lt;</span> IN_GHOST <span style="color: #333333">&amp;</span> j <span style="color: #333333">+</span> i <span style="color: #333333">&lt;</span> iters; j<span style="color: #333333">++</span>) {
         <span style="color: #FF0000; background-color: #FFAAAA">#</span>pragma omp <span style="color: #008800; font-weight: bold">for</span>
-        <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> (Y_IN_GHOST <span style="color: #333333">-</span> Y_OUT_GHOST); y <span style="color: #333333">&lt;</span> my_height <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> Y_OUT_GHOST; y<span style="color: #333333">++</span>) {
-          <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> (X_IN_GHOST <span style="color: #333333">-</span> X_OUT_GHOST); x <span style="color: #333333">+</span> WORD <span style="color: #333333">&lt;=</span> my_width <span style="color: #333333">+</span> X_IN_GHOST <span style="color: #333333">+</span> X_OUT_GHOST; x <span style="color: #333333">+=</span> WORD) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> (Y_IN_GHOST <span style="color: #333333">-</span> Y_OUT_GHOST); y <span style="color: #333333">&lt;</span> my_height <span style="color: #333333">+</span> Y_IN_GHOST <span style="color: #333333">+</span> Y_OUT_GHOST; y<span style="color: #333333">++</span>) {
+          <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> (X_IN_GHOST <span style="color: #333333">-</span> X_OUT_GHOST); x <span style="color: #333333">+</span> WORD <span style="color: #333333">&lt;=</span> my_width <span style="color: #333333">+</span> X_IN_GHOST <span style="color: #333333">+</span> X_OUT_GHOST; x <span style="color: #333333">+=</span> WORD) {
             __m256i n;
             __m256i alive;
-            uint8_t <span style="color: #333333">*</span>u <span style="color: #333333">=</span> my_universe <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> my_padded_width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>;
+            <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>u <span style="color: #333333">=</span> my_universe <span style="color: #333333">+</span> (y <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>) <span style="color: #333333">*</span> my_padded_width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> <span style="color: #0000DD; font-weight: bold">1</span>;
             n <span style="color: #333333">=</span> _mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)u);
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_load_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)), n);
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
@@ -945,20 +969,20 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)u), n);
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_load_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">1</span>)), n);
             n <span style="color: #333333">=</span> _mm256_add_epi8(_mm256_lddqu_si256((__m256i<span style="color: #333333">*</span>)(u <span style="color: #333333">+</span> <span style="color: #0000DD; font-weight: bold">2</span>)), n);
-            _mm256_store_si256((__m256i<span style="color: #333333">*</span>)(my_new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_padded_width <span style="color: #333333">+</span> x),
+            _mm256_stream_si256((__m256i<span style="color: #333333">*</span>)(my_new <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_padded_width <span style="color: #333333">+</span> x),
               _mm256_or_si256(
               _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
               _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
           }
         }
-        uint8_t <span style="color: #333333">*</span>tmp <span style="color: #333333">=</span> my_universe;
+        <span style="color: #333399; font-weight: bold">uint8_t</span> <span style="color: #333333">*</span>tmp <span style="color: #333333">=</span> my_universe;
         my_universe <span style="color: #333333">=</span> my_new;
         my_new <span style="color: #333333">=</span> tmp;
       }
       <span style="color: #FF0000; background-color: #FFAAAA">#</span>pragma omp single
       {
         universe <span style="color: #333333">=</span> my_universe;
-        <span style="color: #008800; font-weight: bold">new</span> <span style="color: #333333">=</span> my_new;
+        new <span style="color: #333333">=</span> my_new;
       }
     }
 
@@ -974,29 +998,29 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
     MPI_Wait(<span style="color: #333333">&amp;</span>left_req, MPI_STATUS_IGNORE);
   }
 
-  unsigned <span style="color: #333333">*</span>out <span style="color: #333333">=</span> NULL;
+  <span style="color: #333399; font-weight: bold">unsigned</span> <span style="color: #333333">*</span>out <span style="color: #333333">=</span> <span style="color: #007020">NULL</span>;
   <span style="color: #888888">//This part is very similar to the Scatter. We now have all of the final</span>
   <span style="color: #888888">//configurations, and need to send them to the master process so that we</span>
   <span style="color: #888888">//can return a matrix.</span>
-  <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> Y_IN_GHOST; y <span style="color: #333333">&lt;</span> Y_IN_GHOST <span style="color: #333333">+</span> my_height; y<span style="color: #333333">++</span>) {
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> X_IN_GHOST; x <span style="color: #333333">&lt;</span> X_IN_GHOST <span style="color: #333333">+</span> my_width; x<span style="color: #333333">++</span>) {
+  <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> Y_IN_GHOST; y <span style="color: #333333">&lt;</span> Y_IN_GHOST <span style="color: #333333">+</span> my_height; y<span style="color: #333333">++</span>) {
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> X_IN_GHOST; x <span style="color: #333333">&lt;</span> X_IN_GHOST <span style="color: #333333">+</span> my_width; x<span style="color: #333333">++</span>) {
       scatter_buffer_recv[(y <span style="color: #333333">-</span> Y_IN_GHOST) <span style="color: #333333">*</span> my_width <span style="color: #333333">+</span> x <span style="color: #333333">-</span> X_IN_GHOST] <span style="color: #333333">=</span> universe[y <span style="color: #333333">*</span> my_padded_width <span style="color: #333333">+</span> x];
     }
   }
-  MPI_Gather((<span style="color: #008800; font-weight: bold">const</span> <span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_recv,
+  MPI_Gather((<span style="color: #008800; font-weight: bold">const</span> <span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_recv,
              my_height <span style="color: #333333">*</span> my_width,
              MPI_UNSIGNED_CHAR,
-             (<span style="color: #008800; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_send,
+             (<span style="color: #333399; font-weight: bold">void</span><span style="color: #333333">*</span>)scatter_buffer_send,
              my_height <span style="color: #333333">*</span> my_width,
              MPI_UNSIGNED_CHAR,
              <span style="color: #0000DD; font-weight: bold">0</span>,
              MPI_COMM_WORLD);
   <span style="color: #008800; font-weight: bold">if</span> (rank <span style="color: #333333">==</span> <span style="color: #0000DD; font-weight: bold">0</span>) {
-    out <span style="color: #333333">=</span> (unsigned<span style="color: #333333">*</span>)malloc(sizeof(unsigned) <span style="color: #333333">*</span> height <span style="color: #333333">*</span> width);
-    <span style="color: #008800; font-weight: bold">for</span> (unsigned their_y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_y <span style="color: #333333">&lt;</span> side; their_y<span style="color: #333333">++</span>) {
-      <span style="color: #008800; font-weight: bold">for</span> (unsigned their_x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_x <span style="color: #333333">&lt;</span> side; their_x<span style="color: #333333">++</span>) {
-        <span style="color: #008800; font-weight: bold">for</span> (unsigned y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
-          <span style="color: #008800; font-weight: bold">for</span> (unsigned x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width; x<span style="color: #333333">++</span>) {
+    out <span style="color: #333333">=</span> (<span style="color: #333399; font-weight: bold">unsigned</span><span style="color: #333333">*</span>)malloc(<span style="color: #008800; font-weight: bold">sizeof</span>(<span style="color: #333399; font-weight: bold">unsigned</span>) <span style="color: #333333">*</span> height <span style="color: #333333">*</span> width);
+    <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> their_y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_y <span style="color: #333333">&lt;</span> side; their_y<span style="color: #333333">++</span>) {
+      <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> their_x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; their_x <span style="color: #333333">&lt;</span> side; their_x<span style="color: #333333">++</span>) {
+        <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> y <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; y <span style="color: #333333">&lt;</span> my_height; y<span style="color: #333333">++</span>) {
+          <span style="color: #008800; font-weight: bold">for</span> (<span style="color: #333399; font-weight: bold">unsigned</span> x <span style="color: #333333">=</span> <span style="color: #0000DD; font-weight: bold">0</span>; x <span style="color: #333333">&lt;</span> my_width; x<span style="color: #333333">++</span>) {
             out[(their_y <span style="color: #333333">*</span> my_height <span style="color: #333333">+</span> y) <span style="color: #333333">*</span> width <span style="color: #333333">+</span> their_x <span style="color: #333333">*</span> my_width <span style="color: #333333">+</span> x] <span style="color: #333333">=</span>
             scatter_buffer_send[(their_y <span style="color: #333333">*</span> side <span style="color: #333333">+</span> their_x) <span style="color: #333333">*</span> (my_width <span style="color: #333333">*</span> my_height) <span style="color: #333333">+</span> y <span style="color: #333333">*</span> my_width <span style="color: #333333">+</span> x];
           }
@@ -1005,7 +1029,7 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
     }
   }
 
-  aligned_free(<span style="color: #008800; font-weight: bold">new</span>);
+  aligned_free(new);
   aligned_free(universe);
   aligned_free(ghost_buffer_top_left_send);
   aligned_free(ghost_buffer_top_send);
@@ -1031,68 +1055,74 @@ unsigned <span style="color: #333333">*</span>life (<span style="color: #008800;
 }
 </pre></div>
 
-    <p>This code runs our 8192x8192 problem for 256 iterations in 0.71 seconds, a speedup of 370.3x over the reference code. Another benefit to this code is that it can scale to arbitrarily large life grid sizes given additional processors. Since the focus of this guide is on-node, we only give numbers for our particular node. Here is a table showing the various times, speedups, and percentages of peak for each code:<p>
+    <p>This code runs our 8192x8192 problem for 256 iterations in 0.58 seconds, a speedup of 462.30x over the reference code. Another benefit to this code is that it can scale to arbitrarily large life grid sizes given additional processors. Since the focus of this guide is on-node, we only give numbers for our particular node. Here is a table showing the various times, speedups, and percentages of peak for each code:<p>
 
 <style type="text/css">
-.tg  {border-collapse:collapse;border-spacing:0;border-color:#ccc;}
-.tg td{font-family:Arial, sans-serif;font-size:14px;padding:10px 5px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#fff;}
-.tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:10px 5px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#f0f0f0;}
+.tg  {border-collapse:collapse;border-spacing:0;}
+.tg td{font-family:Arial, sans-serif;font-size:14px;padding:10px 5px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;}
+.tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:10px 5px;border-style:solid;border-width:1px;overflow:hidden;word-break:normal;}
 .tg .tg-yw4l{vertical-align:top}
 </style>
 <table class="tg">
   <tr>
-    <th class="tg-yw4l"></th>
-    <th class="tg-yw4l">Time (seconds)<br></th>
-    <th class="tg-yw4l">Speedup (over reference.c)<br></th>
-    <th class="tg-yw4l">% of peak<br></th>
+    <th class="tg-yw4l">Code</th>
+    <th class="tg-yw4l">Time (seconds)</th>
+    <th class="tg-yw4l">Speedup (over reference.c)</th>
+    <th class="tg-yw4l">% of peak</th>
   </tr>
   <tr>
     <td class="tg-yw4l">reference.c</td>
-    <td class="tg-yw4l">268.334</td>
-    <td class="tg-yw4l">1.00000</td>
-    <td class="tg-yw4l">0.04617</td>
+    <td class="tg-yw4l">268.33</td>
+    <td class="tg-yw4l">1.00</td>
+    <td class="tg-yw4l">0.05</td>
   </tr>
   <tr>
     <td class="tg-yw4l">simple.c</td>
-    <td class="tg-yw4l">208.351</td>
-    <td class="tg-yw4l">1.28789</td>
-    <td class="tg-yw4l">0.05946</td>
+    <td class="tg-yw4l">208.35</td>
+    <td class="tg-yw4l">1.29</td>
+    <td class="tg-yw4l">0.06</td>
   </tr>
   <tr>
     <td class="tg-yw4l">padded.c</td>
-    <td class="tg-yw4l">51.5913</td>
-    <td class="tg-yw4l">5.20115</td>
-    <td class="tg-yw4l">0.24014</td>
+    <td class="tg-yw4l">51.59</td>
+    <td class="tg-yw4l">5.20</td>
+    <td class="tg-yw4l">0.24</td>
   </tr>
   <tr>
     <td class="tg-yw4l">sse2.c</td>
-    <td class="tg-yw4l">4.62193</td>
-    <td class="tg-yw4l">58.0567</td>
-    <td class="tg-yw4l">2.68055</td>
+    <td class="tg-yw4l">4.62</td>
+    <td class="tg-yw4l">58.06</td>
+    <td class="tg-yw4l">2.68</td>
   </tr>
   <tr>
     <td class="tg-yw4l">avx2.c</td>
-    <td class="tg-yw4l">3.70528</td>
-    <td class="tg-yw4l">72.4194</td>
-    <td class="tg-yw4l">3.34370</td>
+    <td class="tg-yw4l">3.71</td>
+    <td class="tg-yw4l">72.42</td>
+    <td class="tg-yw4l">3.34</td>
   </tr>
   <tr>
-    <td class="tg-yw4l">omp.c (10 threads)<br></td>
-    <td class="tg-yw4l">0.89704</td>
-    <td class="tg-yw4l">299.133</td>
-    <td class="tg-yw4l">13.8113</td>
+    <td class="tg-yw4l">streaming.c</td>
+    <td class="tg-yw4l">3.10</td>
+    <td class="tg-yw4l">86.44</td>
+    <td class="tg-yw4l">3.99</td>
   </tr>
   <tr>
-    <td class="tg-yw4l">mpi.c (4 processes, 10 threads each)<br></td>
-    <td class="tg-yw4l">0.72468</td>
-    <td class="tg-yw4l">370.281</td>
-    <td class="tg-yw4l">17.0964</td>
+    <td class="tg-yw4l">omp.c</td>
+    <td class="tg-yw4l">0.71</td>
+    <td class="tg-yw4l">375.60</td>
+    <td class="tg-yw4l">17.34</td>
+  </tr>
+  <tr>
+    <td class="tg-yw4l">mpi.c</td>
+    <td class="tg-yw4l">0.58</td>
+    <td class="tg-yw4l">462.30</td>
+    <td class="tg-yw4l">21.34</td>
   </tr>
 </table>
 
-    <p>You may be wondering why the mpi.c runs faster than the omp.c. After all, omp.c performs as well at 10 threads as it does at 40 threads, and mpi.c has a lot of extra copying into buffers, etc. I suspect that because the MPI code explicitly manages the memory, passing only the ghost zones to its neighbors once every couple of iterations, mpi.c spends less time in communication. The OpenMP version of the code leaves the memory management to the cache, which doesn't know or care about our delicate ghost zones. By keeping two MPI processes on each NUMA node with 10 OpenMP threads each, we can explicitly manage communication between NUMA nodes.</p>
+    <p>You may be wondering why the mpi.c runs faster than the omp.c. After all, omp.c performs as well at 10 threads as it does at 40 threads, and mpi.c has a lot of extra copying into buffers, etc. I suspect that because the MPI code explicitly manages communication, passing only the ghost zones to its neighbors once every couple of iterations, mpi.c spends less time in communication. The OpenMP version of the code leaves the communication to the cache, which doesn't know or care about our delicate ghost zones. By keeping two MPI processes on each NUMA node with 10 OpenMP threads each, we can explicitly manage communication between NUMA nodes.</p>
 
-    <p>Hopefully you had as much fun reading this code as I did writing it. This writeup is heavy on code and light on analysis, but the main takeaway here is that a balance of memory and computation optimizations are necessary to get the full performance out of your system.</p>
+    <p>Hopefully you had as much fun reading this code as I did writing it. This writeup is heavy on code and light on analysis, but the main takeaway here is that a balance of memory, communication, and computation optimizations are necessary to get the full performance out of your system.</p>
 
   </body>
 </html>
