@@ -385,7 +385,7 @@ unsigned *life (const unsigned height,
             n = _mm256_add_epi8(_mm256_lddqu_si256((__m256i*)u), n);
             n = _mm256_add_epi8(_mm256_load_si256((__m256i*)(u + 1)), n);
             n = _mm256_add_epi8(_mm256_lddqu_si256((__m256i*)(u + 2)), n);
-            _mm256_store_si256((__m256i*)(my_new + y * my_padded_width + x),
+            _mm256_stream_si256((__m256i*)(my_new + y * my_padded_width + x),
               _mm256_or_si256(
               _mm256_and_si256(ones, _mm256_cmpeq_epi8(n, threes)),
               _mm256_and_si256(alive, _mm256_cmpeq_epi8(n, twos))));
