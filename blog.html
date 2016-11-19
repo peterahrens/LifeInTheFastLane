@@ -1,4 +1,32 @@
 <!DOCTYPE html>
+<!--
+ * Copyright (c) 2016, Peter Ahrens
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the Los Alamos National Laboratories nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL PETER AHRENS BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * LA-CC-17-018
+-->
 <html>
   <head>
     <title>Life in the fast lane</title>
@@ -1123,6 +1151,8 @@ NUMA node1 CPU(s):     10-19,30-39
     <p>You may be wondering why the mpi.c runs faster than the omp.c. After all, omp.c performs as well at 10 threads as it does at 40 threads, and mpi.c has a lot of extra copying into buffers, etc. I suspect that because the MPI code explicitly manages communication, passing only the ghost zones to its neighbors once every couple of iterations, mpi.c spends less time in communication. The OpenMP version of the code leaves the communication to the cache, which doesn't know or care about our delicate ghost zones. By keeping two MPI processes on each NUMA node with 10 OpenMP threads each, we can explicitly manage communication between NUMA nodes.</p>
 
     <p>Hopefully you had as much fun reading this code as I did writing it. This writeup is heavy on code and light on analysis, but the main takeaway here is that a balance of memory, communication, and computation optimizations are necessary to get the full performance out of your system.</p>
+
+    <p>LA-CC-17-018<p>
 
   </body>
 </html>
