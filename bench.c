@@ -103,7 +103,7 @@ int main (int argc, char **argv) {
     iters = atoi(argv[3]);
   }
   if (argc > 4) {
-    check = atoi(argv[3]);
+    check = atoi(argv[4]);
   }
 
   //Default values.
